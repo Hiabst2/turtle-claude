@@ -1,0 +1,10 @@
+update.lua
+nav.lua
+mine.lua
+claude.lua
+stripmine.lua
+tunnel.lua
+gohome.lua
+sethome.lua
+goto.lua
+gpsfix.lua
