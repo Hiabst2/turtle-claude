@@ -42,6 +42,8 @@ local function isProtected(name)
   return false
 end
 
+M.isProtected = isProtected
+
 local function inside(z, p)
   return p.x >= z.x1 and p.x <= z.x2 and p.y >= z.y1 and p.y <= z.y2 and p.z >= z.z1 and p.z <= z.z2
 end

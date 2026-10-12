@@ -1,4 +1,4 @@
--- orehunt [runden] [radius]: Erzjagd mit dem Geo Scanner (muss im Inventar sein)
+-- orehunt [bereiche] [radius]: Erzjagd mit dem Geo Scanner (muss im Inventar sein)
 -- Scannt, graebt gezielt zu den Erzen in den Mining-Zonen und rueckt pro Runde in Blickrichtung vor.
 local mine = require("mine")
 local args = { ... }

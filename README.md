@@ -30,7 +30,7 @@ Später reicht `update`, um alles auf den neuesten Stand zu bringen.
 | `gpsfix` | Per GPS auf Weltkoordinaten umstellen (Modem im Inventar) |
 | `kolonie [thema]` | MineColonies-Infos: overview, requests, citizens, buildings, workorders, research, visitors |
 | `zone list / add / here / del / maxy` | Wo gegraben werden darf (Weltkoordinaten, GPS nötig) |
-| `orehunt [runden] [radius]` | Erzjagd mit dem Geo Scanner, gräbt gezielt zu Erzen |
+| `orehunt [bereiche] [radius]` | Erzjagd mit dem Geo Scanner: Wegsuche durch Höhlen und eigene Gänge, so wenig Stein wie möglich; Scan-Bereiche ohne Überschneidung |
 | `update` | Alles neu von GitHub laden |
 
 `nav.lua` und `mine.lua` sind Bibliotheken, die von den Programmen geladen werden.

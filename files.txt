@@ -16,3 +16,4 @@ startup.lua
 gear.lua
 orehunt.lua
 setdepot.lua
+path.lua

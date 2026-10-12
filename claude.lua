@@ -25,7 +25,7 @@ local TRIGGER = NAME:lower()
 local API = "https://api.anthropic.com/v1/messages"
 local MAX_HISTORY = 40
 local MAX_STEPS = 25
-local VERSION = "2026-10-13d"
+local VERSION = "2026-10-13e"
 local OWNER = settings.get("claude.owner") -- Minecraft-Name, der per Chat Zonen aendern darf
 local DEBUG = settings.get("claude.debug", false) -- set claude.debug true: Tool-Ergebnisse im Terminal zeigen
 
@@ -271,12 +271,14 @@ local TOOLS = {
   {
     name = "orehunt",
     description = "Erzjagd mit dem Geo Scanner ab der aktuellen Position: scannt rundherum, graebt gezielt zu jedem "
-      .. "Erz in den Mining-Zonen, baut ganze Adern ab und rueckt pro Runde 2 x radius Bloecke in Blickrichtung vor. "
-      .. "Viel effizienter als stripmine. Kuemmert sich selbst um Fuel, volles Inventar und den Heimweg.",
+      .. "Erz in den Mining-Zonen und waehlt dabei Wege durch Hoehlen und eigene Gaenge, damit moeglichst wenig "
+      .. "Stein abgebaut wird. Die Scan-Bereiche liegen auf einem Raster (2 x radius Abstand, keine Ueberschneidung), "
+      .. "der naechste ist immer der naechstgelegene ungescannte. Viel effizienter als stripmine. Kuemmert sich selbst "
+      .. "um Fuel, volles Inventar und den Heimweg.",
     input_schema = {
       type = "object",
       properties = {
-        rounds = int("Anzahl Scans/Runden (Standard 4)"),
+        rounds = int("Anzahl Scan-Bereiche (Standard 4)"),
         radius = int("Scanradius (Standard 8)"),
         home = { type = "boolean", description = "Am Ende heimfahren und ausladen (Standard true)" },
         drop_junk = { type = "boolean", description = "Bruchstein, Erde, Kies usw. wegwerfen (Standard true)" },

@@ -4,6 +4,7 @@
 local nav = require("nav")
 local zones = require("zones")
 local gear = require("gear")
+local path = require("path")
 local M = {}
 
 local function must(ok, err)
@@ -111,9 +112,14 @@ local function tripHome(ctx)
 end
 
 -- Zum Lagerplatz: erst zurueck zum Startpunkt des Auftrags, dann rueber
+local function toPoint(ctx, p, order)
+  if ctx.map then return path.go(ctx.map, p) end
+  return nav.goTo(p.x, p.y, p.z, order)
+end
+
 local function tripDepot(ctx)
   local s = ctx.start
-  must(nav.goTo(s.x, s.y, s.z, ctx.order))
+  must(toPoint(ctx, s, ctx.order))
   must(nav.goDepot())
 end
 
@@ -123,7 +129,7 @@ local function unloadAndReturn(ctx)
   must(nav.unload())
   local s = ctx.start
   must(nav.travel(s.x, s.y, s.z, nav.HOME_ORDER:reverse()))
-  must(nav.goTo(back.x, back.y, back.z, ctx.order:reverse()))
+  must(toPoint(ctx, back, ctx.order:reverse()))
   nav.face(back.f)
 end
 
@@ -215,7 +221,7 @@ local function retrieveChest(ctx, opts)
   local need = (opts.stashed or 0) + 2
   if nav.freeSlots() < need and ctx.junk then nav.dropJunk() end
   if nav.freeSlots() < need then unloadAndReturn(ctx) end
-  must(nav.goTo(c.x, c.y + 1, c.z, ctx.order))
+  must(toPoint(ctx, { x = c.x, y = c.y + 1, z = c.z }, ctx.order))
   local ok, data = turtle.inspectDown()
   if ok and data.name:find("chest", 1, true) then
     while turtle.suckDown() do end
@@ -243,7 +249,10 @@ end
 local function summary(ctx, lines)
   local ores = {}
   for name, n in pairs(ctx.ores) do ores[#ores + 1] = name:gsub("^minecraft:", "") .. " x" .. n end
-  table.insert(lines, 1, ("Abgebaut: %d Bloecke. Erzbloecke: %s"):format(nav.stats.blocks,
+  local oreCount = 0
+  for _, n in pairs(ctx.ores) do oreCount = oreCount + n end
+  table.insert(lines, 1, ("Abgebaut: %d Bloecke, davon %d Erz und %d Stein/Sonstiges. Erze: %s"):format(
+    nav.stats.blocks, oreCount, math.max(0, nav.stats.blocks - oreCount),
     #ores > 0 and table.concat(ores, ", ") or "keine"))
   lines[#lines + 1] = "Fuel: " .. tostring(nav.fuel())
   lines[#lines + 1] = nav.where()
@@ -355,9 +364,9 @@ function M.tunnel(opts, say)
   return summary(ctx, finish(ctx, opts, opts.home == true))
 end
 
--- Erzjagd mit dem Geo Scanner: scannt die Umgebung, faehrt gezielt zu jedem Erz (nur in Zonen),
--- baut die ganze Ader ab und rueckt dann ein Stueck in Blickrichtung vor fuer den naechsten Scan.
-local function scanOres(radius)
+-- Erzjagd mit dem Geo Scanner: scannt die Umgebung und holt sich die Erze ueber die Wege, die am wenigsten
+-- Stein kosten. Hoehlen und eigene Gaenge werden bevorzugt (siehe path.lua). Danach ein Stueck weiter.
+local function scanArea(map, radius)
   local blocks, err = gear.with("geo_scanner", function(g)
     local res, e = g.scan(radius)
     if not res then
@@ -377,17 +386,18 @@ local function scanOres(radius)
       break
     end
   end
-  local p, ores = nav.pos(), {}
+  local p, list = nav.pos(), {}
   for _, b in ipairs(blocks) do
-    if oreName(b.name, b.tags) then
-      local pos = relative and { x = p.x + b.x, y = p.y + b.y, z = p.z + b.z } or { x = b.x, y = b.y, z = b.z }
-      if zones.check(pos, b.name, nav.hasGps()) then
-        pos.name = b.name
-        ores[#ores + 1] = pos
-      end
-    end
+    local x, y, z = b.x, b.y, b.z
+    if relative then x, y, z = p.x + x, p.y + y, p.z + z end
+    list[#list + 1] = { x = x, y = y, z = z, name = b.name, tags = b.tags }
   end
-  return ores
+  local before = 0
+  for _ in pairs(map.ores) do before = before + 1 end
+  path.addScan(map, p, radius, list, function(b) return oreName(b.name, b.tags) end)
+  local after = 0
+  for _ in pairs(map.ores) do after = after + 1 end
+  return after - before
 end
 
 function M.orehunt(opts, say)
@@ -401,41 +411,50 @@ function M.orehunt(opts, say)
   saveJob("orehunt", opts)
   placeChest(ctx, opts, "orehunt", "geo_scanner")
 
-  for r = 1, rounds do
-    -- jede Runde ein Stueck weiter in Blickrichtung, damit sich die Scans kaum ueberschneiden
-    local ox = ctx.start.x + nav.DX[fwd] * 2 * radius * (r - 1)
-    local oz = ctx.start.z + nav.DZ[fwd] * 2 * radius * (r - 1)
-    maintain(ctx)
-    if not step(nav.goTo(ox, ctx.start.y, oz, ctx.order:reverse())) then
-      ctx.say("Ende der Mining-Zone erreicht.")
-      break
-    end
-    if r > (opts.skip or 0) then
-      local ores = scanOres(radius)
-      ctx.say(("Scan %d/%d: %d Erzbloecke in Reichweite."):format(r, rounds, #ores))
-      local done = {}
-      while true do
-        -- naechstgelegenes noch nicht besuchtes Erz
-        local best, bestD
-        for i, o in ipairs(ores) do
-          if not done[i] then
-            local d = nav.dist(nav.pos(), o)
-            if not bestD or d < bestD then best, bestD = i, d end
-          end
-        end
-        if not best then break end
-        done[best] = true
-        local o = ores[best]
-        maintain(ctx)
-        if step(nav.goTo(o.x, o.y, o.z, "yxz")) then
-          found(ctx, o.name)
-          vein(ctx, 1)
+  local map = path.newMap()
+  ctx.map = map
+  path.markAir(map, nav.pos())
+  local function onOre(name) found(ctx, name) end
+
+  -- Scan-Punkte liegen auf einem Raster mit 2 x radius Abstand, damit sich die Scans nicht ueberschneiden.
+  -- Als naechstes kommt immer der ungescannte Punkt in der Zone, der am naechsten liegt.
+  opts.scanned = opts.scanned or {}
+  local spacing = 2 * radius
+  local function nextCenter()
+    local p, best, bestD = nav.pos(), nil, nil
+    for i = -rounds, rounds do
+      for j = -rounds, rounds do
+        local c = { x = ctx.start.x + i * spacing, y = ctx.start.y, z = ctx.start.z + j * spacing }
+        local k = path.key(c.x, c.y, c.z)
+        if not opts.scanned[k] and zones.check(c, nil, nav.hasGps()) then
+          -- naeher an der Turtle zuerst, bei Gleichstand naeher am Start
+          local d = nav.dist(p, c) * 1000 + nav.dist(ctx.start, c)
+          if not bestD or d < bestD then best, bestD = c, d end
         end
       end
-      step(nav.goTo(ox, ctx.start.y, oz, "yxz"))
-      opts.skip = r
-      saveJob("orehunt", opts)
     end
+    return best
+  end
+
+  local done = 0
+  for _ in pairs(opts.scanned) do done = done + 1 end
+  while done < rounds do
+    local center = nextCenter()
+    if not center then
+      ctx.say("Keine ungescannten Bereiche mehr in der Mining-Zone.")
+      break
+    end
+    opts.scanned[path.key(center.x, center.y, center.z)] = true
+    maintain(ctx)
+    if step(path.go(map, center, onOre)) then
+      done = done + 1
+      local n = scanArea(map, radius)
+      ctx.say(("Scan %d/%d: %d neue Erzbloecke."):format(done, rounds, n))
+      repeat
+        maintain(ctx)
+      until not path.nextOre(map, onOre)
+    end
+    saveJob("orehunt", opts)
   end
 
   return summary(ctx, finish(ctx, opts, opts.home ~= false))
