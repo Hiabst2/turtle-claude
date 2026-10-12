@@ -29,6 +29,7 @@ Später reicht `update`, um alles auf den neuesten Stand zu bringen.
 | `gpsfix` | Per GPS auf Weltkoordinaten umstellen (Modem im Inventar) |
 | `kolonie [thema]` | MineColonies-Infos: overview, requests, citizens, buildings, workorders, research, visitors |
 | `zone list / add / here / del / maxy` | Wo gegraben werden darf (Weltkoordinaten, GPS nötig) |
+| `orehunt [runden] [radius]` | Erzjagd mit dem Geo Scanner, gräbt gezielt zu Erzen |
 | `update` | Alles neu von GitHub laden |
 
 `nav.lua` und `mine.lua` sind Bibliotheken, die von den Programmen geladen werden.
@@ -45,3 +46,12 @@ Jeder Abbau wird in `nav.lua` geprüft, egal ob von Claude, Stripmine oder Heimw
 Zonen ändern: im Terminal mit `zone`, per Chat nur der Besitzer (`set claude.owner <Name>`).
 
 `startup.lua` startet `claude` nach jedem Neustart und setzt unterbrochene Aufträge fort.
+
+## Heimplatz-Aufbau
+
+- **hinter** der Turtle: Truhe zum Ausladen
+- **unter** der Turtle: Ausrüstungskiste mit Geo Scanner, Player Detector, Ender Modem
+- **neben** der Turtle: Colony Integrator (optional)
+- **über** dem Heimplatz frei bis zur Reisehöhe (Standard Y 110, `set claude.travel_y <y>`)
+
+Die Chat Box bleibt immer angelegt. Für Scanner, Detector und Modem wird kurz die Spitzhacke getauscht.

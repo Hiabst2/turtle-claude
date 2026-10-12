@@ -2,6 +2,8 @@
 -- Wird von claude.lua und den Programmen stripmine/tunnel geladen.
 
 local nav = require("nav")
+local zones = require("zones")
+local gear = require("gear")
 local M = {}
 
 local function must(ok, err)
@@ -16,10 +18,33 @@ end
 
 local function copy(p) return { x = p.x, y = p.y, z = p.z, f = p.f } end
 
+local function oreName(name, tags)
+  if name:find("_ore$") or name:find("ancient_debris") then return true end
+  for k, v in pairs(tags or {}) do
+    local tag = type(k) == "string" and k or v -- inspect liefert {tag=true}, der Geo Scanner eine Liste
+    if tag == "c:ores" or tag == "forge:ores" or tag == "minecraft:ores" then return true end
+  end
+  return false
+end
+
 local function isOre(ok, data)
-  if not ok then return false end
-  local tags = data.tags or {}
-  return tags["c:ores"] or tags["forge:ores"] or data.name:find("_ore$") or data.name:find("ancient_debris")
+  return ok and oreName(data.name, data.tags)
+end
+
+-- Erz nur mitnehmen, wenn es in einer Zone liegt (sonst wuerde der Auftrag an der Zonengrenze abbrechen)
+local function mayDig(dir, data)
+  return zones.check(nav.target(dir), data.name, nav.hasGps())
+end
+
+-- An der Zonengrenze nicht abbrechen, sondern nur diesen Gang beenden
+local function blocked(err)
+  return type(err) == "string" and err:find("Darf hier nicht graben", 1, true) ~= nil
+end
+
+local function step(ok, err)
+  if ok then return true end
+  if blocked(err) then return false end
+  error(err or "Fehler", 0)
 end
 
 local INSPECT = { front = turtle.inspect, up = turtle.inspectUp, down = turtle.inspectDown }
@@ -34,7 +59,7 @@ local function vein(ctx, depth)
   if depth > 24 then return end
   for _, d in ipairs({ "up", "down" }) do
     local ok, data = INSPECT[d]()
-    if isOre(ok, data) then
+    if isOre(ok, data) and mayDig(d, data) then
       found(ctx, data.name)
       must(nav[d](true))
       vein(ctx, depth + 1)
@@ -43,7 +68,7 @@ local function vein(ctx, depth)
   end
   for _ = 1, 4 do
     local ok, data = turtle.inspect()
-    if isOre(ok, data) then
+    if isOre(ok, data) and mayDig("front", data) then
       found(ctx, data.name)
       must(nav.forward(true))
       vein(ctx, depth + 1)
@@ -57,7 +82,7 @@ end
 local function scan(ctx, sides)
   for _, d in ipairs({ "up", "down" }) do
     local ok, data = INSPECT[d]()
-    if isOre(ok, data) then
+    if isOre(ok, data) and mayDig(d, data) then
       found(ctx, data.name)
       must(nav[d](true))
       vein(ctx, 1)
@@ -68,7 +93,7 @@ local function scan(ctx, sides)
   for i = 1, 2 do
     if i == 1 then nav.turnLeft() else nav.turnAround() end
     local ok, data = turtle.inspect()
-    if isOre(ok, data) then
+    if isOre(ok, data) and mayDig("front", data) then
       found(ctx, data.name)
       must(nav.forward(true))
       vein(ctx, 1)
@@ -91,7 +116,7 @@ local function unloadAndReturn(ctx)
   tripHome(ctx)
   must(nav.unload())
   local s = ctx.start
-  must(nav.goTo(s.x, s.y, s.z, nav.HOME_ORDER:reverse()))
+  must(nav.travel(s.x, s.y, s.z, nav.HOME_ORDER:reverse()))
   must(nav.goTo(back.x, back.y, back.z, ctx.order:reverse()))
   nav.face(back.f)
 end
@@ -183,10 +208,13 @@ function M.stripmine(opts, say)
   for i = 1, length do
     maintain(ctx)
     nav.face(fwd)
-    must(nav.forward(true))
+    if not step(nav.forward(true)) then
+      ctx.say("Ende der Mining-Zone erreicht.")
+      break
+    end
     if i > (opts.skip or 0) then -- erledigte Abschnitte nach einem Neustart nur durchfahren
       scan(ctx, branch == 0)
-      must(nav.dig("up"))
+      step(nav.dig("up"))
 
       if branch > 0 and i % spacing == 0 then
         for _, turn in ipairs({ nav.turnLeft, nav.turnRight }) do
@@ -197,10 +225,10 @@ function M.stripmine(opts, say)
           for _ = 1, branch do
             maintain(ctx)
             nav.face(dir)
-            must(nav.forward(true))
+            if not step(nav.forward(true)) then break end
             walked = walked + 1
             scan(ctx, true)
-            must(nav.dig("up"))
+            step(nav.dig("up"))
           end
           -- zurueck in den Hauptgang
           nav.face((dir + 2) % 4)
@@ -257,6 +285,91 @@ function M.tunnel(opts, say)
   nav.face(fwd)
 
   return summary(ctx, finish(ctx, opts.home == true))
+end
+
+-- Erzjagd mit dem Geo Scanner: scannt die Umgebung, faehrt gezielt zu jedem Erz (nur in Zonen),
+-- baut die ganze Ader ab und rueckt dann ein Stueck in Blickrichtung vor fuer den naechsten Scan.
+local function scanOres(radius)
+  local blocks, err = gear.with("geo_scanner", function(g)
+    local res, e = g.scan(radius)
+    if not res then
+      sleep(3) -- Scanner hat eine Abklingzeit
+      res, e = g.scan(radius)
+    end
+    if not res then error(e or "Scan fehlgeschlagen", 0) end
+    return res
+  end)
+  if not blocks then error("Geo Scanner: " .. tostring(err), 0) end
+
+  -- Koordinaten koennen relativ oder absolut kommen: liegen alle im Scanradius, sind sie relativ
+  local relative = true
+  for _, b in ipairs(blocks) do
+    if math.abs(b.x) > radius + 1 or math.abs(b.y) > radius + 1 or math.abs(b.z) > radius + 1 then
+      relative = false
+      break
+    end
+  end
+  local p, ores = nav.pos(), {}
+  for _, b in ipairs(blocks) do
+    if oreName(b.name, b.tags) then
+      local pos = relative and { x = p.x + b.x, y = p.y + b.y, z = p.z + b.z } or { x = b.x, y = b.y, z = b.z }
+      if zones.check(pos, b.name, nav.hasGps()) then
+        pos.name = b.name
+        ores[#ores + 1] = pos
+      end
+    end
+  end
+  return ores
+end
+
+function M.orehunt(opts, say)
+  local rounds = clamp(opts.rounds, 1, 16, 4)
+  local radius = clamp(opts.radius, 2, 16, 8)
+  local ctx = newCtx(say, opts.drop_junk, opts.start)
+  local fwd = ctx.start.f
+  opts.start = ctx.start
+  if not gear.findSlot("geo_scanner") then error("kein Geo Scanner dabei, erst Ausruestung holen", 0) end
+  resumeAt(ctx)
+  saveJob("orehunt", opts)
+
+  for r = 1, rounds do
+    -- jede Runde ein Stueck weiter in Blickrichtung, damit sich die Scans kaum ueberschneiden
+    local ox = ctx.start.x + nav.DX[fwd] * 2 * radius * (r - 1)
+    local oz = ctx.start.z + nav.DZ[fwd] * 2 * radius * (r - 1)
+    maintain(ctx)
+    if not step(nav.goTo(ox, ctx.start.y, oz, ctx.order:reverse())) then
+      ctx.say("Ende der Mining-Zone erreicht.")
+      break
+    end
+    if r > (opts.skip or 0) then
+      local ores = scanOres(radius)
+      ctx.say(("Scan %d/%d: %d Erzbloecke in Reichweite."):format(r, rounds, #ores))
+      local done = {}
+      while true do
+        -- naechstgelegenes noch nicht besuchtes Erz
+        local best, bestD
+        for i, o in ipairs(ores) do
+          if not done[i] then
+            local d = nav.dist(nav.pos(), o)
+            if not bestD or d < bestD then best, bestD = i, d end
+          end
+        end
+        if not best then break end
+        done[best] = true
+        local o = ores[best]
+        maintain(ctx)
+        if step(nav.goTo(o.x, o.y, o.z, "yxz")) then
+          found(ctx, o.name)
+          vein(ctx, 1)
+        end
+      end
+      step(nav.goTo(ox, ctx.start.y, oz, "yxz"))
+      opts.skip = r
+      saveJob("orehunt", opts)
+    end
+  end
+
+  return summary(ctx, finish(ctx, opts.home ~= false))
 end
 
 -- Fuehrt einen Auftrag aus und liefert immer einen Text zurueck, auch bei Abbruch.

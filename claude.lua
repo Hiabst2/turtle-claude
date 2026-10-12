@@ -17,6 +17,7 @@ local nav = require("nav")
 local mine = require("mine")
 local colony = require("colony")
 local zones = require("zones")
+local gear = require("gear")
 
 local MODEL = settings.get("claude.model", "claude-opus-5")
 local NAME = os.getComputerLabel() or "Hiabst"
@@ -24,7 +25,7 @@ local TRIGGER = NAME:lower()
 local API = "https://api.anthropic.com/v1/messages"
 local MAX_HISTORY = 40
 local MAX_STEPS = 25
-local VERSION = "2026-10-12d"
+local VERSION = "2026-10-13a"
 local OWNER = settings.get("claude.owner") -- Minecraft-Name, der per Chat Zonen aendern darf
 local DEBUG = settings.get("claude.debug", false) -- set claude.debug true: Tool-Ergebnisse im Terminal zeigen
 
@@ -128,6 +129,14 @@ local SYSTEM = ([[Du bist %s, eine Mining Turtle in Minecraft (ComputerCraft). S
 - Graben ist nur innerhalb der Mining-Zonen und unter dem Hoehenlimit erlaubt, geschuetzte Bloecke nie. Das prueft
   die Turtle selbst bei jedem Block. Meldet ein Tool "Darf hier nicht graben", versuche es nicht anders, sondern
   sag dem Spieler, dass er die Zone erweitern muss. Zonen zeigt das Tool zones (action list).
+- Ausruestung: Unter dem Heimplatz steht eine Kiste mit Peripherals (Geo Scanner, Player Detector, Modem).
+  Die Chat Box ist immer angelegt, alles andere legt die Turtle nur kurz an, wenn ein Tool es braucht.
+  Hol vor einem Ausflug mit gear (action take) genau das, was gebraucht wird, und lege es am Ende mit
+  gear (action store) zurueck. Das geht nur am Heimplatz.
+- "Komm zu mir" = come_to_player (braucht den Player Detector). "Wir gehen minen" laeuft so:
+  1. falls noetig go_home, 2. gear take [player_detector, geo_scanner, modem], 3. come_to_player,
+  4. dort orehunt (mit Geo Scanner) oder stripmine, je nach Wunsch, 5. danach wieder come_to_player,
+  damit die Turtle zum Spieler zurueckkommt. Kurz Bescheid geben, was du gerade machst.
 - Spieler koennen jederzeit "stop" schreiben, dann bricht das laufende Programm ab.]]):format(NAME)
 
 -- jedes Schema braucht eine eigene Tabelle, serializeJSON mag keine doppelt verwendeten
@@ -234,6 +243,40 @@ local TOOLS = {
         maxy = { type = "integer" },
       },
       required = { "action" },
+    },
+  },
+  {
+    name = "gear",
+    description = "Ausruestungskiste unter dem Heimplatz. list = was in der Kiste ist und was die Turtle dabei hat. "
+      .. "take = Teile holen (items), store = alle Peripherals zurueck in die Kiste. take/store nur am Heimplatz.",
+    input_schema = {
+      type = "object",
+      properties = {
+        action = { type = "string", enum = { "list", "take", "store" } },
+        items = { type = "array", items = { type = "string", enum = { "geo_scanner", "player_detector", "modem", "environment_detector" } } },
+      },
+      required = { "action" },
+    },
+  },
+  {
+    name = "come_to_player",
+    description = "Fliegt in Reisehoehe zum Spieler und landet direkt neben ihm. Braucht GPS und den Player Detector. "
+      .. "Ohne player wird der Spieler genommen, der gerade schreibt.",
+    input_schema = { type = "object", properties = { player = { type = "string" } } },
+  },
+  {
+    name = "orehunt",
+    description = "Erzjagd mit dem Geo Scanner ab der aktuellen Position: scannt rundherum, graebt gezielt zu jedem "
+      .. "Erz in den Mining-Zonen, baut ganze Adern ab und rueckt pro Runde 2 x radius Bloecke in Blickrichtung vor. "
+      .. "Viel effizienter als stripmine. Kuemmert sich selbst um Fuel, volles Inventar und den Heimweg.",
+    input_schema = {
+      type = "object",
+      properties = {
+        rounds = int("Anzahl Scans/Runden (Standard 4)"),
+        radius = int("Scanradius (Standard 8)"),
+        home = { type = "boolean", description = "Am Ende heimfahren und ausladen (Standard true)" },
+        drop_junk = { type = "boolean", description = "Bruchstein, Erde, Kies usw. wegwerfen (Standard true)" },
+      },
     },
   },
   { name = "set_home", description = "Macht die aktuelle Position zum Heimplatz.", input_schema = empty() },
@@ -354,6 +397,35 @@ local function zoneTool(input, user)
   return msg
 end
 
+local function atHome()
+  local p, h = nav.pos(), nav.home()
+  return p.x == h.x and p.y == h.y and p.z == h.z
+end
+
+local function gearTool(input)
+  local action = input.action or "list"
+  if action == "list" then return gear.describe() end
+  if not atHome() then return "Das geht nur am Heimplatz, erst go_home." end
+  local ok, msg
+  if action == "take" then ok, msg = gear.take(input.items or {}) else ok, msg = gear.store() end
+  return msg
+end
+
+local function comeToPlayer(input, user)
+  local name = input.player or user or OWNER
+  if not name then return "Wem soll ich folgen? Spielername fehlt." end
+  if not nav.hasGps() then return "Ohne GPS finde ich niemanden, erst gps_locate." end
+  local pos, err = gear.playerPos(name)
+  if not pos then return "Konnte " .. name .. " nicht orten: " .. tostring(err) end
+  if pos.dimension and not tostring(pos.dimension):find("overworld") then
+    return name .. " ist in " .. tostring(pos.dimension) .. ", da komme ich nicht hin."
+  end
+  local tx, ty, tz = math.floor(pos.x) + 1, math.floor(pos.y), math.floor(pos.z)
+  local ok, res, e = pcall(nav.approach, tx, ty, tz)
+  if not ok or not res then return "Unterwegs gescheitert: " .. tostring(ok and e or res) .. "\n" .. nav.where() end
+  return ("Bin bei %s (Spieler bei x=%d y=%d z=%d). %s"):format(name, tx - 1, ty, tz, nav.where())
+end
+
 local function runTool(name, input, say, user)
   term.setTextColor(colors.gray)
   print("[" .. name .. "]")
@@ -377,6 +449,9 @@ local function runTool(name, input, say, user)
   end
   if name == "colony" then return colony.query(input.topic) end
   if name == "zones" then return zoneTool(input, user) end
+  if name == "gear" then return gearTool(input) end
+  if name == "come_to_player" then return comeToPlayer(input, user) end
+  if name == "orehunt" then return mine.run(mine.orehunt, input, say) end
   if name == "set_home" then nav.setHome(); return "Heimplatz gesetzt. " .. nav.where() end
   if name == "refuel" then return "Fuel: " .. tostring(nav.refuel()) end
   if name == "gps_locate" then

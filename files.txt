@@ -13,3 +13,5 @@ kolonie.lua
 zones.lua
 zone.lua
 startup.lua
+gear.lua
+orehunt.lua

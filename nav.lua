@@ -3,6 +3,7 @@
 -- Die Position wird in /.nav gespeichert und ueberlebt Neustarts.
 
 local zones = require("zones")
+local gear = require("gear")
 
 local M = {}
 
@@ -15,6 +16,7 @@ local WORLD_DIRS = { [0] = "Sued", "West", "Nord", "Ost" }
 local REL_DIRS = { [0] = "Startrichtung", "rechts", "hinten", "links" }
 
 M.HOME_ORDER = "xzy"
+M.DX, M.DZ = DX, DZ
 M.stats = { blocks = 0 }
 
 local state
@@ -244,9 +246,45 @@ function M.setHome()
   save()
 end
 
+-- Weite Wege: erst hoch auf Reisehoehe, oben rueber, dann runter. So wird unterwegs nichts umgegraben
+-- (und ausserhalb der Zonen darf sie sowieso nicht graben). Kurze Wege direkt mit goTo.
+M.TRAVEL_Y = settings.get("claude.travel_y", 110)
+
+local function far(x, z)
+  return math.abs(state.pos.x - x) + math.abs(state.pos.z - z) > 8
+end
+
+local function climb(x, z)
+  local p = state.pos
+  local ty = math.max(M.TRAVEL_Y, p.y)
+  local ok, err = M.goTo(p.x, ty, p.z, "y")
+  if not ok then return false, "Weg nach oben blockiert: " .. err end
+  ok, err = M.goTo(x, ty, z, "xz")
+  if not ok then return false, "Weg in Reisehoehe blockiert: " .. err end
+  return true
+end
+
+function M.travel(x, y, z, order)
+  if not far(x, z) then return M.goTo(x, y, z, order or M.HOME_ORDER) end
+  local ok, err = climb(x, z)
+  if not ok then return false, err end
+  return M.goTo(x, y, z, "y")
+end
+
+-- Zu einer Stelle fliegen und von oben herabsinken, bis Boden kommt oder Hoehe y erreicht ist.
+-- Gegraben wird beim Herabsinken nicht.
+function M.approach(x, y, z)
+  local ok, err = climb(x, z)
+  if not ok then return false, err end
+  while state.pos.y > y do
+    if not M.down(false) then break end
+  end
+  return true
+end
+
 function M.goHome(order)
   local h = state.home
-  local ok, err = M.goTo(h.x, h.y, h.z, order or M.HOME_ORDER)
+  local ok, err = M.travel(h.x, h.y, h.z, order)
   if ok then M.face(h.f) end
   return ok, err
 end
@@ -254,7 +292,7 @@ end
 -- Inventar --------------------------------------------------------------
 
 local function keep(name)
-  return name:find("modem", 1, true) or name:find("chat_box", 1, true)
+  return name:find("chat_box", 1, true) or gear.isGear(name)
 end
 
 local JUNK = {}
@@ -318,41 +356,16 @@ local function wirelessSide()
   end
 end
 
--- Seite, auf die das Modem kurz geschnallt werden kann: Chat Box (wird getauscht) oder frei.
-local function swapSide()
-  for _, side in ipairs({ "left", "right" }) do
-    if peripheral.getType(side) == "chatBox" then return side end
-  end
-  if turtle.getEquippedLeft then
-    if not turtle.getEquippedLeft() then return "left" end
-    if not turtle.getEquippedRight() then return "right" end
-  end
-end
-
+-- Modem kurz statt der Spitzhacke anlegen (die Chat Box bleibt dran)
 function M.locate()
+  local x, y, z
   if wirelessSide() then
-    local x, y, z = gps.locate(2)
-    if not x then return nil, "kein GPS-Signal (laufen die 4 GPS-Computer?)" end
-    return { x = x, y = y, z = z }
+    x, y, z = gps.locate(2)
+  else
+    local ok, err = gear.with("modem", function() x, y, z = gps.locate(2) return true end)
+    if not ok then return nil, err end
   end
-
-  local slot
-  for s = 1, 16 do
-    local item = turtle.getItemDetail(s)
-    if item and item.name:find("modem", 1, true) then slot = s break end
-  end
-  if not slot then return nil, "kein Wireless/Ender Modem im Inventar" end
-  local side = swapSide()
-  if not side then return nil, "kein Platz zum Anlegen des Modems (Chat Box oder freie Seite noetig)" end
-
-  local sel = turtle.getSelectedSlot()
-  local equip = side == "left" and turtle.equipLeft or turtle.equipRight
-  turtle.select(slot)
-  equip()                     -- Modem rein, Chat Box landet im Slot
-  local x, y, z = gps.locate(2)
-  equip()                     -- und wieder zurueck
-  turtle.select(sel)
-  if not x then return nil, "kein GPS-Signal (laufen die 4 GPS-Computer? Wireless Modem in Reichweite?)" end
+  if not x then return nil, "kein GPS-Signal (laufen die 4 GPS-Computer? Modem in Reichweite?)" end
   return { x = x, y = y, z = z }
 end
 
