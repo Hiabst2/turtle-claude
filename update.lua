@@ -22,6 +22,12 @@ for name in list:gmatch("[^\r\n]+") do
     h.close()
     print("ok   " .. name)
     ok = ok + 1
+    -- alte Kopie ohne .lua (z.B. von pastebin get) entfernen, die wuerde sonst beim Starten Vorrang haben
+    local bare = name:gsub("%.lua$", "")
+    if bare ~= name and fs.exists(bare) and not fs.isDir(bare) then
+      fs.delete(bare)
+      print("     alte Datei '" .. bare .. "' entfernt")
+    end
   else
     printError("FEHLER " .. name .. ": " .. tostring(e))
   end
