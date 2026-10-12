@@ -23,6 +23,7 @@ local TRIGGER = NAME:lower()
 local API = "https://api.anthropic.com/v1/messages"
 local MAX_HISTORY = 40
 local MAX_STEPS = 25
+local DEBUG = settings.get("claude.debug", false) -- set claude.debug true: Tool-Ergebnisse im Terminal zeigen
 
 local chatBox = peripheral.find("chatBox")
 
@@ -116,8 +117,10 @@ local SYSTEM = ([[Du bist %s, eine Mining Turtle in Minecraft (ComputerCraft). S
 - Positionen sind relativ zum Start, bis gps_locate erfolgreich war. Danach sind es echte Weltkoordinaten.
 - Vorsicht mit Lava und Abgruenden: erst inspizieren, dann graben.
 - Baue nichts ab, was offensichtlich Spielern gehoert (Truhen, Maschinen, Haeuser), ausser man bittet dich darum.
-- Fragen zur MineColonies-Kolonie (Anfragen, Buerger, Gebaeude, Bauauftraege, Forschung, Besucher) beantwortest
-  du mit dem Tool colony. Der Colony Integrator steht am Heimplatz; meldet das Tool, dass er nicht erreichbar ist,
+- Du bist an eine MineColonies-Kolonie angebunden und kannst sie mit dem Tool colony live auslesen. Bei jeder Frage
+  zur Kolonie, ihren Buergern, Gebaeuden, Anfragen, Bauauftraegen, Forschung oder Besuchern rufst du ZUERST colony auf,
+  statt zu raten oder zu sagen, dass du keinen Zugriff hast. "Wie geht's der Kolonie?" = overview, bei Problemen
+  danach citizens. Der Colony Integrator steht am Heimplatz; meldet das Tool, dass er nicht erreichbar ist,
   frag kurz nach, ob du heimfahren sollst. Fasse die Daten knapp zusammen und nenne das Wichtigste zuerst.
 - Spieler koennen jederzeit "stop" schreiben, dann bricht das laufende Programm ab.]]):format(NAME)
 
@@ -355,7 +358,13 @@ local function handle(user, text, fromChat)
     if #said > 0 then say(table.concat(said, " ")) end
     for _, block in ipairs(resp.content or {}) do
       if block.type == "tool_use" then
-        results[#results + 1] = { type = "tool_result", tool_use_id = block.id, content = runTool(block.name, block.input or {}, say) }
+        local out = runTool(block.name, block.input or {}, say)
+        if DEBUG then
+          term.setTextColor(colors.lightGray)
+          print(out)
+          term.setTextColor(colors.white)
+        end
+        results[#results + 1] = { type = "tool_result", tool_use_id = block.id, content = out }
       end
     end
     if resp.stop_reason ~= "tool_use" then return end
