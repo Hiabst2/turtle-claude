@@ -25,7 +25,7 @@ local TRIGGER = NAME:lower()
 local API = "https://api.anthropic.com/v1/messages"
 local MAX_HISTORY = 40
 local MAX_STEPS = 25
-local VERSION = "2026-10-13e"
+local VERSION = "2026-10-13f"
 local OWNER = settings.get("claude.owner") -- Minecraft-Name, der per Chat Zonen aendern darf
 local DEBUG = settings.get("claude.debug", false) -- set claude.debug true: Tool-Ergebnisse im Terminal zeigen
 
@@ -131,6 +131,8 @@ local SYSTEM = ([[Du bist %s, eine Mining Turtle in Minecraft (ComputerCraft). S
 - Graben ist nur innerhalb der Mining-Zonen und unter dem Hoehenlimit erlaubt, geschuetzte Bloecke nie. Das prueft
   die Turtle selbst bei jedem Block. Meldet ein Tool "Darf hier nicht graben", versuche es nicht anders, sondern
   sag dem Spieler, dass er die Zone erweitern muss. Zonen zeigt das Tool zones (action list).
+  Aendere Zonen oder Hoehenlimit NUR, wenn der Spieler das ausdruecklich verlangt, nie aus eigenem Antrieb und
+  nie, um selbst weiterzukommen. Schlag hoechstens vor. Aenderungen per Chat muss der Besitzer mit "ja" bestaetigen.
 - Ausruestung: Unter dem Heimplatz steht eine Kiste mit Peripherals (Geo Scanner, Player Detector, Modem).
   Die Chat Box ist immer angelegt, alles andere legt die Turtle nur kurz an, wenn ein Tool es braucht.
   Hol vor einem Ausflug mit gear (action take) genau das, was gebraucht wird, und lege es am Ende mit
@@ -386,14 +388,30 @@ local function mayEditZones(user)
   return OWNER ~= nil and user:lower() == OWNER:lower()
 end
 
-local function zoneTool(input, user)
-  local action = input.action or "list"
-  if action == "list" then return zones.describe() end
-  if not mayEditZones(user) then
-    return OWNER and ("Nur " .. OWNER .. " darf Zonen aendern.")
-      or "Zonen per Chat aendern ist aus. Im Terminal: set claude.owner <Minecraft-Name>"
+-- Zonen-Aenderungen aus dem Chat werden erst ausgefuehrt, wenn der Besitzer selbst mit "ja" bestaetigt.
+-- Die Bestaetigung prueft enqueue(), nicht Claude: so kann die Turtle ihre Grenzen nie eigenmaechtig lockern.
+local pendingZone
+local notes = {} -- Hinweise fuer Claude, die mit der naechsten Spielernachricht mitgeschickt werden
+
+local function describeZoneChange(input)
+  local a = input.action
+  if a == "add" then
+    return ("Zone %s anlegen: x %s..%s, y %s..%s, z %s..%s"):format(tostring(input.name), tostring(input.x1),
+      tostring(input.x2), tostring(input.y1), tostring(input.y2), tostring(input.z1), tostring(input.z2))
+  elseif a == "here" then
+    return ("Zone %s um die Turtle anlegen: Radius %s, %s runter, %s hoch"):format(tostring(input.name),
+      tostring(input.radius), tostring(input.down or 0), tostring(input.up or 1))
+  elseif a == "delete" then
+    return "Zone " .. tostring(input.name) .. " loeschen"
+  elseif a == "maxy" then
+    return "Hoehenlimit auf Y " .. tostring(input.maxy) .. " setzen"
   end
+  return "unbekannte Aenderung"
+end
+
+local function applyZoneChange(input)
   local ok, msg
+  local action = input.action
   if action == "add" then
     ok, msg = zones.add(input.name, input.x1, input.y1, input.z1, input.x2, input.y2, input.z2)
   elseif action == "here" then
@@ -406,6 +424,19 @@ local function zoneTool(input, user)
     msg = "unbekannte Aktion " .. tostring(action)
   end
   return msg
+end
+
+local function zoneTool(input, user)
+  local action = input.action or "list"
+  if action == "list" then return zones.describe() end
+  if not mayEditZones(user) then
+    return OWNER and ("Nur " .. OWNER .. " darf Zonen aendern.")
+      or "Zonen per Chat aendern ist aus. Im Terminal: set claude.owner <Minecraft-Name>"
+  end
+  if user == nil then return applyZoneChange(input) end -- direkt am Terminal: keine Rueckfrage
+  pendingZone = input
+  return "NICHT geaendert. Vorgemerkt: " .. describeZoneChange(input) .. ". Das gilt erst, wenn " .. OWNER
+    .. " im Chat mit 'ja' bestaetigt. Frag ihn genau das und aendere nichts, worum er nicht gebeten hat."
 end
 
 local function atHome()
@@ -483,7 +514,12 @@ end
 local function handle(user, text, fromChat)
   nav.resetAbort()
   trimHistory()
-  history[#history + 1] = { role = "user", content = user and ("[" .. user .. "] " .. text) or text }
+  local content = user and ("[" .. user .. "] " .. text) or text
+  if #notes > 0 then
+    content = table.concat(notes, "\n") .. "\n" .. content
+    notes = {}
+  end
+  history[#history + 1] = { role = "user", content = content }
   local say = function(msg) reply(msg, fromChat) end
 
   for _ = 1, MAX_STEPS do
@@ -529,6 +565,18 @@ local function enqueue(user, text, fromChat)
     queue = {}
     reply("Ok, ich stoppe.", fromChat)
     return
+  end
+  -- Bestaetigung einer vorgemerkten Zonen-Aenderung, nur vom Besitzer selbst
+  if pendingZone and user and mayEditZones(user) then
+    local change = pendingZone
+    pendingZone = nil
+    if low == "ja" or low == "yes" or low == "ok" or low == "passt" then
+      local msg = applyZoneChange(change)
+      reply(msg, fromChat)
+      -- nicht direkt in den Verlauf (koennte mitten in einen Tool-Aufruf fallen), sondern mit der naechsten Nachricht
+      notes[#notes + 1] = "[System] " .. user .. " hat bestaetigt: " .. msg
+      return
+    end
   end
   queue[#queue + 1] = { user, text, fromChat }
   os.queueEvent("claude_msg")
