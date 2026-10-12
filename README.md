@@ -64,3 +64,11 @@ Eigener Platz zum Ausladen und Tanken, z.B. am Tom's-Storage-Lager:
 - **über** dem Heimplatz frei bis zur Reisehöhe (Standard Y 110, `set claude.travel_y <y>`)
 
 Die Chat Box bleibt immer angelegt. Für Scanner, Detector und Modem wird kurz die Spitzhacke getauscht.
+
+## Zwischenkiste
+
+Liegt eine normale Kiste im Inventar der Turtle, stellt sie beim Start von `stripmine`, `tunnel` oder `orehunt`
+die Kiste unter sich ab und legt dort die Ausrüstung ab, die sie beim Minen nicht braucht (bei `orehunt` bleibt
+der Geo Scanner dabei). Während des Auftrags wird die Kiste nicht angefasst. Am Ende holt die Turtle alles raus,
+baut die Kiste ab und legt sie nach der Heimfahrt mit der Ausrüstung zurück in die Toolbox.
+Bei `stop` bleibt die Kiste stehen.

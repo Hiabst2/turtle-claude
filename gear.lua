@@ -16,7 +16,7 @@ M.ITEMS = {
 -- Gegenstaende, die zur Ausruestung gehoeren und nie ausgeladen werden
 function M.isGear(name)
   return name:find("advancedperipherals:", 1, true) ~= nil or name:find("modem", 1, true) ~= nil
-    or name:find("pickaxe", 1, true) ~= nil
+    or name:find("pickaxe", 1, true) ~= nil or name == "minecraft:chest" -- Zwischenkiste fuers Minen
 end
 
 function M.findSlot(pattern)

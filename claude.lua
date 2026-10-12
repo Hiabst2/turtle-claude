@@ -25,7 +25,7 @@ local TRIGGER = NAME:lower()
 local API = "https://api.anthropic.com/v1/messages"
 local MAX_HISTORY = 40
 local MAX_STEPS = 25
-local VERSION = "2026-10-13c"
+local VERSION = "2026-10-13d"
 local OWNER = settings.get("claude.owner") -- Minecraft-Name, der per Chat Zonen aendern darf
 local DEBUG = settings.get("claude.debug", false) -- set claude.debug true: Tool-Ergebnisse im Terminal zeigen
 
@@ -134,7 +134,9 @@ local SYSTEM = ([[Du bist %s, eine Mining Turtle in Minecraft (ComputerCraft). S
 - Ausruestung: Unter dem Heimplatz steht eine Kiste mit Peripherals (Geo Scanner, Player Detector, Modem).
   Die Chat Box ist immer angelegt, alles andere legt die Turtle nur kurz an, wenn ein Tool es braucht.
   Hol vor einem Ausflug mit gear (action take) genau das, was gebraucht wird, und lege es am Ende mit
-  gear (action store) zurueck. Das geht nur am Heimplatz.
+  gear (action store) zurueck. Das geht nur am Heimplatz. Hat die Turtle eine Kiste dabei, stellen stripmine,
+  tunnel und orehunt sie als Zwischenkiste ab, legen ungenutzte Ausruestung hinein und packen sie am Ende
+  wieder ein; nach einem Auftrag mit Heimfahrt landet alles automatisch wieder in der Toolbox.
 - "Komm zu mir" = come_to_player (braucht den Player Detector). "Wir gehen minen" laeuft so:
   1. falls noetig go_home, 2. gear take [player_detector, geo_scanner, modem], 3. come_to_player,
   4. dort orehunt (mit Geo Scanner) oder stripmine, je nach Wunsch, 5. danach wieder come_to_player,

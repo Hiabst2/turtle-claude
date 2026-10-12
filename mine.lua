@@ -174,13 +174,68 @@ local function newCtx(say, junk, savedStart)
   return { start = start, order = perp .. main .. "y", ores = {}, say = say or function() end, junk = junk ~= false }
 end
 
-local function finish(ctx, goHome)
+-- Zwischenkiste: liegt eine Kiste im Inventar, stellt die Turtle sie beim Start unter sich ab und legt dort
+-- die Ausruestung ab, die sie beim Minen nicht braucht. Die Kiste ist eine Truhe und damit geschuetzt,
+-- waehrend des Auftrags wird sie also nicht angefasst. Am Ende holt die Turtle alles raus und baut sie ab.
+local function placeChest(ctx, opts, kind, keep)
+  if opts.chest then return end -- steht schon (Auftrag wird fortgesetzt)
+  local slot = gear.findSlot("minecraft:chest")
+  if not slot then return end
+  if turtle.detectDown() and not nav.dig("down") then
+    ctx.say("Kein Platz fuer die Zwischenkiste, mache ohne weiter.")
+    return
+  end
+  local sel = turtle.getSelectedSlot()
+  turtle.select(slot)
+  if not turtle.placeDown() then
+    turtle.select(sel)
+    return
+  end
+  local p = nav.pos()
+  opts.chest = { x = p.x, y = p.y - 1, z = p.z }
+
+  local stashed = 0
+  for s = 1, 16 do
+    local item = turtle.getItemDetail(s)
+    if item and gear.isGear(item.name) and not item.name:find("pickaxe", 1, true)
+      and not item.name:find("chat_box", 1, true) and not (keep and item.name:find(keep, 1, true)) then
+      turtle.select(s)
+      if turtle.dropDown() then stashed = stashed + 1 end
+    end
+  end
+  turtle.select(sel)
+  opts.stashed = stashed
+  saveJob(kind, opts)
+  ctx.say(("Zwischenkiste abgestellt, %d Teile abgelegt."):format(stashed))
+end
+
+local function retrieveChest(ctx, opts)
+  local c = opts.chest
+  if not c then return end
+  local need = (opts.stashed or 0) + 2
+  if nav.freeSlots() < need and ctx.junk then nav.dropJunk() end
+  if nav.freeSlots() < need then unloadAndReturn(ctx) end
+  must(nav.goTo(c.x, c.y + 1, c.z, ctx.order))
+  local ok, data = turtle.inspectDown()
+  if ok and data.name:find("chest", 1, true) then
+    while turtle.suckDown() do end
+    turtle.digDown() -- die eigene Kiste darf sie abbauen, darum direkt und nicht ueber nav.dig
+  end
+  opts.chest = nil
+  ctx.say("Zwischenkiste wieder eingepackt.")
+end
+
+local function finish(ctx, opts, goHome)
   local lines = {}
+  retrieveChest(ctx, opts)
   if goHome then
     tripDepot(ctx)
     local ok, info = nav.unload()
     must(nav.goHome())
     lines[#lines + 1] = ok and ("Ausgeladen: " .. info .. " Items") or ("Nicht ausgeladen: " .. info)
+    -- Kiste und Ausruestung zurueck in die Toolbox unter dem Heimplatz
+    local stored = gear.store()
+    if stored then lines[#lines + 1] = "Ausruestung und Kiste in die Toolbox gelegt." end
   end
   return lines
 end
@@ -215,6 +270,7 @@ function M.stripmine(opts, say)
   opts.start = ctx.start
   resumeAt(ctx)
   saveJob("stripmine", opts)
+  placeChest(ctx, opts, "stripmine")
 
   for i = 1, length do
     maintain(ctx)
@@ -252,7 +308,7 @@ function M.stripmine(opts, say)
     end
   end
 
-  return summary(ctx, finish(ctx, opts.home ~= false))
+  return summary(ctx, finish(ctx, opts, opts.home ~= false))
 end
 
 -- Tunnel mit Breite x Hoehe. Die Turtle steht unten links, der Tunnel geht nach rechts und oben.
@@ -266,6 +322,7 @@ function M.tunnel(opts, say)
   opts.start = ctx.start
   resumeAt(ctx)
   saveJob("tunnel", opts)
+  placeChest(ctx, opts, "tunnel")
 
   for i = 1, length do
     maintain(ctx)
@@ -295,7 +352,7 @@ function M.tunnel(opts, say)
   end
   nav.face(fwd)
 
-  return summary(ctx, finish(ctx, opts.home == true))
+  return summary(ctx, finish(ctx, opts, opts.home == true))
 end
 
 -- Erzjagd mit dem Geo Scanner: scannt die Umgebung, faehrt gezielt zu jedem Erz (nur in Zonen),
@@ -342,6 +399,7 @@ function M.orehunt(opts, say)
   if not gear.findSlot("geo_scanner") then error("kein Geo Scanner dabei, erst Ausruestung holen", 0) end
   resumeAt(ctx)
   saveJob("orehunt", opts)
+  placeChest(ctx, opts, "orehunt", "geo_scanner")
 
   for r = 1, rounds do
     -- jede Runde ein Stueck weiter in Blickrichtung, damit sich die Scans kaum ueberschneiden
@@ -380,7 +438,7 @@ function M.orehunt(opts, say)
     end
   end
 
-  return summary(ctx, finish(ctx, opts.home ~= false))
+  return summary(ctx, finish(ctx, opts, opts.home ~= false))
 end
 
 -- Fuehrt einen Auftrag aus und liefert immer einen Text zurueck, auch bei Abbruch.
@@ -394,7 +452,9 @@ function M.run(job, opts, say)
   local msg = "Gestoppt: " .. tostring(res)
   -- bei Zonen- oder anderen Fehlern sicher heimfahren, bei "stop" stehen bleiben
   if res ~= "abgebrochen" and opts.start then
-    local back = pcall(tripHome, newCtx(say, true, opts.start))
+    local ctx = newCtx(say, true, opts.start)
+    pcall(retrieveChest, ctx, opts)
+    local back = pcall(tripHome, ctx)
     msg = msg .. (back and "\nBin heimgefahren." or "\nDer Heimweg hat nicht geklappt.")
   end
   return msg .. "\n" .. nav.where()
