@@ -25,7 +25,7 @@ local TRIGGER = NAME:lower()
 local API = "https://api.anthropic.com/v1/messages"
 local MAX_HISTORY = 40
 local MAX_STEPS = 25
-local VERSION = "2026-10-13a"
+local VERSION = "2026-10-13b"
 local OWNER = settings.get("claude.owner") -- Minecraft-Name, der per Chat Zonen aendern darf
 local DEBUG = settings.get("claude.debug", false) -- set claude.debug true: Tool-Ergebnisse im Terminal zeigen
 
@@ -117,7 +117,7 @@ local SYSTEM = ([[Du bist %s, eine Mining Turtle in Minecraft (ComputerCraft). S
 - Nimm fuer groessere Aufgaben die Programme stripmine, tunnel, go_home und go_to. Die laufen komplett auf der
   Turtle, kuemmern sich selbst um Fuel, Erzadern, volles Inventar und den Heimweg und kosten nur einen Aufruf.
   turtle_do ist fuer kleine Handgriffe gedacht.
-- Der Heimplatz ist dort, wo die Turtle gestartet ist oder set_home aufgerufen wurde. Direkt dahinter steht die Truhe.
+- Der Heimplatz ist dort, wo die Turtle gestartet ist oder set_home aufgerufen wurde. Direkt dahinter steht die Truhe bzw. der Anschluss ans Lager (Tom's Storage), daneben gibt es Kohle. Ausladen und Nachtanken passiert beim Heimfahren automatisch.
 - Positionen sind relativ zum Start, bis gps_locate erfolgreich war. Danach sind es echte Weltkoordinaten.
 - Vorsicht mit Lava und Abgruenden: erst inspizieren, dann graben.
 - Baue nichts ab, was offensichtlich Spielern gehoert (Truhen, Maschinen, Haeuser), ausser man bittet dich darum.

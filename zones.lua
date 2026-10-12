@@ -31,6 +31,7 @@ end
 local PROTECTED = {
   "chest", "barrel", "shulker", "minecolonies", "structurize", "computercraft", "advancedperipherals",
   "door", "_bed", "sign", "glass", "create:", "furnace", "crafting_table", "hopper", "anvil", "beacon",
+  "storage", "ae2:", -- Tom's/Functional/Sophisticated Storage, Storage Racks, Applied Energistics
 }
 
 local function isProtected(name)

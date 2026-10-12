@@ -49,7 +49,8 @@ Zonen ändern: im Terminal mit `zone`, per Chat nur der Besitzer (`set claude.ow
 
 ## Heimplatz-Aufbau
 
-- **hinter** der Turtle: Truhe zum Ausladen
+- **hinter** der Turtle: Truhe zum Ausladen oder ein Tom's Storage *Inventory Cable Connector* (dann landet alles im Lager)
+- **rechts oder links**: Tom's Storage *Filtered Cable Connector* mit Filter Kohle (oder eine Truhe mit Kohle) zum Nachtanken
 - **unter** der Turtle: Ausrüstungskiste mit Geo Scanner, Player Detector, Ender Modem
 - **neben** der Turtle: Colony Integrator (optional)
 - **über** dem Heimplatz frei bis zur Reisehöhe (Standard Y 110, `set claude.travel_y <y>`)

@@ -111,7 +111,6 @@ local function tripHome(ctx)
 end
 
 local function unloadAndReturn(ctx)
-  ctx.say("Inventar voll, bringe alles zur Truhe.")
   local back = copy(nav.pos())
   tripHome(ctx)
   must(nav.unload())
@@ -126,12 +125,16 @@ local function maintain(ctx)
   local need = nav.dist(nav.pos(), ctx.start) + nav.dist(ctx.start, nav.home()) + 64
   if nav.fuel() < need then nav.refuel(need + 800) end
   if nav.fuel() < need then
-    ctx.say("Fuel wird knapp, fahre heim.")
-    tripHome(ctx)
-    error("Fuel knapp, bin heimgefahren", 0)
+    -- daheim wird ausgeladen und Kohle aus dem Lager nachgetankt, dann geht es weiter
+    ctx.say("Fuel wird knapp, hole Kohle.")
+    unloadAndReturn(ctx)
+    if nav.fuel() < need then error("Fuel knapp und daheim keine Kohle gefunden", 0) end
   end
   if nav.freeSlots() < 3 and ctx.junk then nav.dropJunk() end
-  if nav.freeSlots() < 3 then unloadAndReturn(ctx) end
+  if nav.freeSlots() < 3 then
+    ctx.say("Inventar voll, bringe alles ins Lager.")
+    unloadAndReturn(ctx)
+  end
 end
 
 -- Laufender Auftrag wird in /.job gespeichert. Startet die Turtle neu (z.B. Chunk entladen),
