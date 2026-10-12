@@ -243,15 +243,16 @@ function M.goTo(x, y, z, order, dig)
   return true
 end
 
-function M.setHome()
-  local p = state.pos
+-- Ohne Angabe die aktuelle Position, sonst p = { x, y, z, f } (f wie in DX/DZ)
+function M.setHome(p)
+  p = p or state.pos
   state.home = { x = p.x, y = p.y, z = p.z, f = p.f }
   save()
 end
 
 -- Lagerplatz: hinter der Turtle der Cable Connector, unter oder neben ihr der Kohle-Connector
-function M.setDepot()
-  local p = state.pos
+function M.setDepot(p)
+  p = p or state.pos
   state.depot = { x = p.x, y = p.y, z = p.z, f = p.f }
   save()
 end

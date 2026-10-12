@@ -25,7 +25,7 @@ local TRIGGER = NAME:lower()
 local API = "https://api.anthropic.com/v1/messages"
 local MAX_HISTORY = 40
 local MAX_STEPS = 25
-local VERSION = "2026-10-13f"
+local VERSION = "2026-10-13g"
 local OWNER = settings.get("claude.owner") -- Minecraft-Name, der per Chat Zonen aendern darf
 local DEBUG = settings.get("claude.debug", false) -- set claude.debug true: Tool-Ergebnisse im Terminal zeigen
 
@@ -149,6 +149,16 @@ local SYSTEM = ([[Du bist %s, eine Mining Turtle in Minecraft (ComputerCraft). S
 local function empty() return { type = "object", properties = {} } end
 
 local function int(desc) return { type = "integer", description = desc } end
+
+local function place_schema()
+  return {
+    type = "object",
+    properties = {
+      x = { type = "integer" }, y = { type = "integer" }, z = { type = "integer" },
+      facing = { type = "string", enum = { "nord", "ost", "sued", "west" } },
+    },
+  }
+end
 
 local TOOLS = {
   {
@@ -289,10 +299,31 @@ local TOOLS = {
   },
   {
     name = "set_depot",
-    description = "Macht die aktuelle Position zum Lagerplatz (hinten Cable Connector zum Lager, seitlich Kohle).",
-    input_schema = empty(),
+    description = "Setzt den Lagerplatz (hinter der Turtle Cable Connector zum Lager, unter/neben ihr Kohle). "
+      .. "Ohne Koordinaten die aktuelle Position und Blickrichtung. Mit x, y, z und facing ein anderer Ort: facing ist "
+      .. "die Blickrichtung der Turtle auf dem Platz, der Connector liegt also in der Gegenrichtung.",
+    input_schema = place_schema(),
   },
-  { name = "set_home", description = "Macht die aktuelle Position zum Heimplatz.", input_schema = empty() },
+  {
+    name = "set_home",
+    description = "Setzt den Heimplatz (darunter die Ausruestungskiste). Ohne Koordinaten die aktuelle Position, "
+      .. "sonst x, y, z und facing (Blickrichtung der Turtle auf dem Platz).",
+    input_schema = place_schema(),
+  },
+  {
+    name = "config",
+    description = "Einstellungen lesen oder aendern. travel_y = Flughoehe fuer weite Wege, fuel_target = bis wohin "
+      .. "am Lager getankt wird. get ohne key zeigt alle Einstellungen samt Heim- und Lagerplatz.",
+    input_schema = {
+      type = "object",
+      properties = {
+        action = { type = "string", enum = { "get", "set" } },
+        key = { type = "string", enum = { "travel_y", "fuel_target" } },
+        value = { type = "integer" },
+      },
+      required = { "action" },
+    },
+  },
   { name = "refuel", description = "Verbrennt Kohle und andere Brennstoffe aus dem Inventar.", input_schema = empty() },
   {
     name = "gps_locate",
@@ -468,6 +499,44 @@ local function comeToPlayer(input, user)
   return ("Bin bei %s (Spieler bei x=%d y=%d z=%d). %s"):format(name, tx - 1, ty, tz, nav.where())
 end
 
+-- Platz aus Tool-Eingabe: ohne Koordinaten die aktuelle Position
+local FACINGS = { sued = 0, west = 1, nord = 2, ost = 3 }
+local function placeFrom(input)
+  if input.x == nil and input.y == nil and input.z == nil then return nil end
+  if not (input.x and input.y and input.z and input.facing) then
+    return nil, "Fuer einen Platz per Koordinaten braucht es x, y, z und facing."
+  end
+  if not nav.hasGps() then return nil, "Plaetze per Koordinaten gehen nur mit GPS (erst gps_locate)." end
+  return { x = input.x, y = input.y, z = input.z, f = FACINGS[input.facing] }
+end
+
+-- Einstellungen, die Claude aendern darf. Besitzer, API-Key und Zonen gehoeren nicht dazu.
+local CONFIG = {
+  travel_y = { setting = "claude.travel_y", min = 0, max = 300, apply = function(v) nav.TRAVEL_Y = v end,
+    get = function() return nav.TRAVEL_Y end },
+  fuel_target = { setting = "claude.fuel_target", min = 100, max = 100000, apply = function(v) nav.FUEL_TARGET = v end,
+    get = function() return nav.FUEL_TARGET end },
+}
+
+local function configTool(input)
+  if input.action == "set" then
+    local c = CONFIG[input.key]
+    if not c then return "Unbekannte Einstellung." end
+    local v = tonumber(input.value)
+    if not v or v < c.min or v > c.max then return ("Wert muss zwischen %d und %d liegen."):format(c.min, c.max) end
+    settings.set(c.setting, v)
+    settings.save()
+    c.apply(v)
+    return input.key .. " = " .. v .. " gespeichert."
+  end
+  local lines = {}
+  for k, c in pairs(CONFIG) do lines[#lines + 1] = k .. " = " .. tostring(c.get()) end
+  table.sort(lines)
+  lines[#lines + 1] = "Besitzer: " .. tostring(OWNER)
+  lines[#lines + 1] = nav.where()
+  return table.concat(lines, "\n")
+end
+
 local function runTool(name, input, say, user)
   term.setTextColor(colors.gray)
   print("[" .. name .. "]")
@@ -490,7 +559,13 @@ local function runTool(name, input, say, user)
     if not ok or not res then return note .. "Heimweg fehlgeschlagen: " .. tostring(ok and err or res) .. "\n" .. nav.where() end
     return note .. "Daheim.\n" .. nav.where()
   end
-  if name == "set_depot" then nav.setDepot(); return "Lagerplatz gesetzt. " .. nav.where() end
+  if name == "set_depot" or name == "set_home" then
+    local p, err = placeFrom(input)
+    if err then return err end
+    if name == "set_depot" then nav.setDepot(p) else nav.setHome(p) end
+    return (name == "set_depot" and "Lagerplatz" or "Heimplatz") .. " gesetzt. " .. nav.where()
+  end
+  if name == "config" then return configTool(input) end
   if name == "go_to" then
     local ok, res, err = pcall(nav.goTo, input.x, input.y, input.z)
     if ok and res then return "Angekommen. " .. nav.where() end
@@ -501,7 +576,6 @@ local function runTool(name, input, say, user)
   if name == "gear" then return gearTool(input) end
   if name == "come_to_player" then return comeToPlayer(input, user) end
   if name == "orehunt" then return mine.run(mine.orehunt, input, say) end
-  if name == "set_home" then nav.setHome(); return "Heimplatz gesetzt. " .. nav.where() end
   if name == "refuel" then return "Fuel: " .. tostring(nav.refuel()) end
   if name == "gps_locate" then
     local ok, res, err = pcall(nav.calibrate)
