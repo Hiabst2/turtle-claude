@@ -249,7 +249,7 @@ function M.setHome()
   save()
 end
 
--- Lagerplatz: hinter der Turtle der Cable Connector, links oder rechts der Kohle-Connector
+-- Lagerplatz: hinter der Turtle der Cable Connector, unter oder neben ihr der Kohle-Connector
 function M.setDepot()
   local p = state.pos
   state.depot = { x = p.x, y = p.y, z = p.z, f = p.f }
@@ -337,7 +337,8 @@ function M.dropJunk()
 end
 
 -- Leert das Inventar in die Truhe bzw. ins Lager hinter dem Lagerplatz.
--- Behalten wird nur die Ausruestung (Chat Box, Spitzhacke, Peripherals). Danach wird Kohle nachgetankt.
+-- Behalten werden die Ausruestung (Chat Box, Spitzhacke, Peripherals) und ein Stapel Kohle.
+-- Fehlt danach noch Fuel oder Reserve, holt restock() Kohle aus dem Lager.
 function M.unload()
   local h = M.depot()
   M.face((h.f + 2) % 4)
@@ -348,13 +349,22 @@ function M.unload()
     M.face(h.f)
     return false, "hinter dem Lagerplatz steht keine Truhe und kein Lager-Anschluss"
   end
-  -- alles rein, auch Kohle. Die holt sich restock() danach gezielt wieder raus.
-  local sel, dropped, full = turtle.getSelectedSlot(), 0, false
+  -- Eigene Kohle zuerst verbrennen und bis zu einem Stapel behalten, nur der Rest kommt ins Lager.
+  -- So wandert keine Kohle sinnlos ins Lager und gleich wieder zurueck.
+  M.refuel(M.FUEL_TARGET)
+  local sel, dropped, full, reserve = turtle.getSelectedSlot(), 0, false, 0
   for slot = 1, 16 do
     local item = turtle.getItemDetail(slot)
     if item and not keep(item.name) then
-      turtle.select(slot)
-      if turtle.drop() then dropped = dropped + item.count else full = true end
+      local count = item.count
+      if FUEL[item.name] and reserve < 64 then
+        local kept = math.min(count, 64 - reserve)
+        reserve, count = reserve + kept, count - kept
+      end
+      if count > 0 then
+        turtle.select(slot)
+        if turtle.drop(count) then dropped = dropped + count else full = true end
+      end
     end
   end
   turtle.select(sel)
@@ -364,7 +374,7 @@ function M.unload()
   return true, dropped
 end
 
--- Kohle nachfuellen am Heimplatz: links oder rechts steht ein Filtered Cable Connector (Tom's Storage,
+-- Kohle nachfuellen am Lagerplatz: unter, links oder rechts steht ein Filtered Cable Connector (Tom's Storage,
 -- Filter auf Kohle) oder eine Truhe mit Kohle. Tankt bis FUEL_TARGET und nimmt einen Stapel als Reserve mit.
 M.FUEL_TARGET = settings.get("claude.fuel_target", 5000)
 
@@ -388,26 +398,36 @@ function M.restock()
   if p.x ~= h.x or p.y ~= h.y or p.z ~= h.z then return 0 end
   local target = math.min(M.FUEL_TARGET, turtle.getFuelLimit() == "unlimited" and math.huge or turtle.getFuelLimit())
   local sel, got = turtle.getSelectedSlot(), 0
+
+  local function pull(suck, drop)
+    for _ = 1, 4 do
+      if M.fuel() >= target and fuelItems() >= 64 then return end
+      local slot = freeSlot()
+      if not slot then return end
+      turtle.select(slot)
+      if not suck(64) then return end
+      local item = turtle.getItemDetail(slot)
+      if not (item and FUEL[item.name]) then
+        drop() -- kein Brennstoff, zurueck damit
+        return
+      end
+      got = got + item.count
+      if M.fuel() < target then M.refuel(target) end
+    end
+  end
+
+  -- Kohle-Connector unter der Turtle
+  local okDown, below = turtle.inspectDown()
+  if okDown and below.name:find("connector_filtered") then pull(turtle.suckDown, turtle.dropDown) end
+
+  -- oder links/rechts (Filtered Connector oder Truhe mit Kohle)
   for _, f in ipairs({ (h.f + 1) % 4, (h.f + 3) % 4 }) do
     if M.fuel() >= target and fuelItems() >= 64 then break end
     M.face(f)
     local ok, data = turtle.inspect()
     local name = ok and data.name or ""
     if name:find("connector_filtered") or name:find("chest") or name:find("barrel") then
-      for _ = 1, 4 do
-        if M.fuel() >= target and fuelItems() >= 64 then break end
-        local slot = freeSlot()
-        if not slot then break end
-        turtle.select(slot)
-        if not turtle.suck(64) then break end
-        local item = turtle.getItemDetail(slot)
-        if not (item and FUEL[item.name]) then
-          turtle.drop() -- kein Brennstoff, zurueck damit
-          break
-        end
-        got = got + item.count
-        if M.fuel() < target then M.refuel(target) end
-      end
+      pull(turtle.suck, turtle.drop)
     end
   end
   turtle.select(sel)

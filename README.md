@@ -57,7 +57,7 @@ Zonen ändern: im Terminal mit `zone`, per Chat nur der Besitzer (`set claude.ow
 Eigener Platz zum Ausladen und Tanken, z.B. am Tom's-Storage-Lager:
 
 - **hinter** der Turtle: *Inventory Cable Connector* – alles wird reingeworfen, auch Kohle
-- **rechts oder links**: *Filtered Cable Connector* mit Filter Kohle – davon wird nachgetankt (bis 5000, `set claude.fuel_target`)
+- **unter, rechts oder links**: *Filtered Cable Connector* mit Filter Kohle – davon wird nachgetankt (bis 5000, `set claude.fuel_target`)
 - darüber frei bis zur Reisehöhe
 - **unter** der Turtle: Ausrüstungskiste mit Geo Scanner, Player Detector, Ender Modem
 - **neben** der Turtle: Colony Integrator (optional)
