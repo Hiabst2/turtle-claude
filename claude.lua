@@ -25,7 +25,7 @@ local TRIGGER = NAME:lower()
 local API = "https://api.anthropic.com/v1/messages"
 local MAX_HISTORY = 40
 local MAX_STEPS = 25
-local VERSION = "2026-10-13b"
+local VERSION = "2026-10-13c"
 local OWNER = settings.get("claude.owner") -- Minecraft-Name, der per Chat Zonen aendern darf
 local DEBUG = settings.get("claude.debug", false) -- set claude.debug true: Tool-Ergebnisse im Terminal zeigen
 
@@ -117,7 +117,9 @@ local SYSTEM = ([[Du bist %s, eine Mining Turtle in Minecraft (ComputerCraft). S
 - Nimm fuer groessere Aufgaben die Programme stripmine, tunnel, go_home und go_to. Die laufen komplett auf der
   Turtle, kuemmern sich selbst um Fuel, Erzadern, volles Inventar und den Heimweg und kosten nur einen Aufruf.
   turtle_do ist fuer kleine Handgriffe gedacht.
-- Der Heimplatz ist dort, wo die Turtle gestartet ist oder set_home aufgerufen wurde. Direkt dahinter steht die Truhe bzw. der Anschluss ans Lager (Tom's Storage), daneben gibt es Kohle. Ausladen und Nachtanken passiert beim Heimfahren automatisch.
+- Der Heimplatz ist dort, wo die Turtle gestartet ist oder set_home aufgerufen wurde. Ausgeladen und
+  nachgetankt wird am Lagerplatz (set_depot, Anschluss an Tom's Storage); ist keiner gesetzt, am Heimplatz.
+  Das passiert bei go_home und bei den Mining-Programmen automatisch.
 - Positionen sind relativ zum Start, bis gps_locate erfolgreich war. Danach sind es echte Weltkoordinaten.
 - Vorsicht mit Lava und Abgruenden: erst inspizieren, dann graben.
 - Baue nichts ab, was offensichtlich Spielern gehoert (Truhen, Maschinen, Haeuser), ausser man bittet dich darum.
@@ -203,7 +205,7 @@ local TOOLS = {
   },
   {
     name = "go_home",
-    description = "Faehrt zum Heimplatz (graebt sich notfalls durch) und laedt optional in die Truhe dahinter aus.",
+    description = "Faehrt heim. Mit unload (Standard true) vorher zum Lagerplatz: alles ins Lager, Kohle nachtanken.",
     input_schema = { type = "object", properties = { unload = { type = "boolean", description = "Standard true" } } },
   },
   {
@@ -278,6 +280,11 @@ local TOOLS = {
         drop_junk = { type = "boolean", description = "Bruchstein, Erde, Kies usw. wegwerfen (Standard true)" },
       },
     },
+  },
+  {
+    name = "set_depot",
+    description = "Macht die aktuelle Position zum Lagerplatz (hinten Cable Connector zum Lager, seitlich Kohle).",
+    input_schema = empty(),
   },
   { name = "set_home", description = "Macht die aktuelle Position zum Heimplatz.", input_schema = empty() },
   { name = "refuel", description = "Verbrennt Kohle und andere Brennstoffe aus dem Inventar.", input_schema = empty() },
@@ -436,12 +443,19 @@ local function runTool(name, input, say, user)
   if name == "stripmine" then return mine.run(mine.stripmine, input, say) end
   if name == "tunnel" then return mine.run(mine.tunnel, input, say) end
   if name == "go_home" then
+    local note = ""
+    if input.unload ~= false then
+      -- erst am Lagerplatz ausladen und tanken, dann heim
+      local ok, res, err = pcall(nav.goDepot)
+      if not ok or not res then return "Weg zum Lager fehlgeschlagen: " .. tostring(ok and err or res) .. "\n" .. nav.where() end
+      local unloaded, info = nav.unload()
+      note = unloaded and ("Ausgeladen: " .. info .. " Items, Fuel " .. tostring(nav.fuel()) .. ". ") or (info .. ". ")
+    end
     local ok, res, err = pcall(nav.goHome)
-    if not ok or not res then return "Heimweg fehlgeschlagen: " .. tostring(ok and err or res) .. "\n" .. nav.where() end
-    if input.unload == false then return "Daheim. " .. nav.where() end
-    local unloaded, info = nav.unload()
-    return (unloaded and ("Daheim, ausgeladen: " .. info .. " Items") or ("Daheim, " .. info)) .. "\n" .. nav.where()
+    if not ok or not res then return note .. "Heimweg fehlgeschlagen: " .. tostring(ok and err or res) .. "\n" .. nav.where() end
+    return note .. "Daheim.\n" .. nav.where()
   end
+  if name == "set_depot" then nav.setDepot(); return "Lagerplatz gesetzt. " .. nav.where() end
   if name == "go_to" then
     local ok, res, err = pcall(nav.goTo, input.x, input.y, input.z)
     if ok and res then return "Angekommen. " .. nav.where() end

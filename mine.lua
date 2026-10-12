@@ -110,9 +110,16 @@ local function tripHome(ctx)
   must(nav.goHome())
 end
 
+-- Zum Lagerplatz: erst zurueck zum Startpunkt des Auftrags, dann rueber
+local function tripDepot(ctx)
+  local s = ctx.start
+  must(nav.goTo(s.x, s.y, s.z, ctx.order))
+  must(nav.goDepot())
+end
+
 local function unloadAndReturn(ctx)
   local back = copy(nav.pos())
-  tripHome(ctx)
+  tripDepot(ctx)
   must(nav.unload())
   local s = ctx.start
   must(nav.travel(s.x, s.y, s.z, nav.HOME_ORDER:reverse()))
@@ -122,7 +129,7 @@ end
 
 -- Vor jedem Schritt: genug Fuel fuer den Heimweg? Platz im Inventar?
 local function maintain(ctx)
-  local need = nav.dist(nav.pos(), ctx.start) + nav.dist(ctx.start, nav.home()) + 64
+  local need = nav.dist(nav.pos(), ctx.start) + nav.dist(ctx.start, nav.depot()) + 64
   if nav.fuel() < need then nav.refuel(need + 800) end
   if nav.fuel() < need then
     -- daheim wird ausgeladen und Kohle aus dem Lager nachgetankt, dann geht es weiter
@@ -170,8 +177,9 @@ end
 local function finish(ctx, goHome)
   local lines = {}
   if goHome then
-    tripHome(ctx)
+    tripDepot(ctx)
     local ok, info = nav.unload()
+    must(nav.goHome())
     lines[#lines + 1] = ok and ("Ausgeladen: " .. info .. " Items") or ("Nicht ausgeladen: " .. info)
   end
   return lines

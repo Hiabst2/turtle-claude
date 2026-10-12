@@ -39,6 +39,8 @@ end
 
 function M.pos() return state.pos end
 function M.home() return state.home end
+-- Lagerplatz zum Ausladen und Tanken. Ohne eigenen Lagerplatz ist es der Heimplatz.
+function M.depot() return state.depot or state.home end
 function M.hasGps() return state.gps end
 
 local function fmt(p)
@@ -48,7 +50,8 @@ end
 function M.where()
   local p, h = state.pos, state.home
   local dirs = state.gps and WORLD_DIRS or REL_DIRS
-  return ("Position %s, Blick %s | Zuhause %s%s"):format(fmt(p), dirs[p.f], fmt(h),
+  return ("Position %s, Blick %s | Zuhause %s%s%s"):format(fmt(p), dirs[p.f], fmt(h),
+    state.depot and (" | Lager " .. fmt(state.depot)) or "",
     state.gps and " (GPS-Weltkoordinaten)" or " (relativ zum Start, kein GPS)")
 end
 
@@ -246,6 +249,13 @@ function M.setHome()
   save()
 end
 
+-- Lagerplatz: hinter der Turtle der Cable Connector, links oder rechts der Kohle-Connector
+function M.setDepot()
+  local p = state.pos
+  state.depot = { x = p.x, y = p.y, z = p.z, f = p.f }
+  save()
+end
+
 -- Weite Wege: erst hoch auf Reisehoehe, oben rueber, dann runter. So wird unterwegs nichts umgegraben
 -- (und ausserhalb der Zonen darf sie sowieso nicht graben). Kurze Wege direkt mit goTo.
 M.TRAVEL_Y = settings.get("claude.travel_y", 110)
@@ -289,6 +299,13 @@ function M.goHome(order)
   return ok, err
 end
 
+function M.goDepot(order)
+  local d = M.depot()
+  local ok, err = M.travel(d.x, d.y, d.z, order)
+  if ok then M.face(d.f) end
+  return ok, err
+end
+
 -- Inventar --------------------------------------------------------------
 
 local function keep(name)
@@ -319,17 +336,17 @@ function M.dropJunk()
   turtle.select(sel)
 end
 
--- Leert das Inventar in die Truhe bzw. ins Lager hinter dem Heimplatz.
+-- Leert das Inventar in die Truhe bzw. ins Lager hinter dem Lagerplatz.
 -- Behalten wird nur die Ausruestung (Chat Box, Spitzhacke, Peripherals). Danach wird Kohle nachgetankt.
 function M.unload()
-  local h = state.home
+  local h = M.depot()
   M.face((h.f + 2) % 4)
   local ok, data = turtle.inspect()
   local name = ok and data.name or ""
   -- Truhe oder Tom's Storage Cable Connector (dann landet alles direkt im Lager)
   if not (name:find("chest") or name:find("barrel") or name:find("shulker") or name:find("toms_storage")) then
     M.face(h.f)
-    return false, "hinter dem Heimplatz steht keine Truhe und kein Lager-Anschluss"
+    return false, "hinter dem Lagerplatz steht keine Truhe und kein Lager-Anschluss"
   end
   -- alles rein, auch Kohle. Die holt sich restock() danach gezielt wieder raus.
   local sel, dropped, full = turtle.getSelectedSlot(), 0, false
@@ -367,7 +384,7 @@ local function freeSlot()
 end
 
 function M.restock()
-  local h, p = state.home, state.pos
+  local h, p = M.depot(), state.pos
   if p.x ~= h.x or p.y ~= h.y or p.z ~= h.z then return 0 end
   local target = math.min(M.FUEL_TARGET, turtle.getFuelLimit() == "unlimited" and math.huge or turtle.getFuelLimit())
   local sel, got = turtle.getSelectedSlot(), 0
@@ -438,9 +455,13 @@ function M.calibrate()
   -- Heimplatz aus dem alten System ins Weltsystem drehen und verschieben
   local p, h = state.pos, state.home
   local k = (wf - p.f) % 4
-  local vx, vz = h.x - p.x, h.z - p.z
-  for _ = 1, k do vx, vz = -vz, vx end
-  state.home = { x = p1.x + vx, y = p1.y + (h.y - p.y), z = p1.z + vz, f = (h.f + k) % 4 }
+  local function convert(t)
+    local vx, vz = t.x - p.x, t.z - p.z
+    for _ = 1, k do vx, vz = -vz, vx end
+    return { x = p1.x + vx, y = p1.y + (t.y - p.y), z = p1.z + vz, f = (t.f + k) % 4 }
+  end
+  state.home = convert(h)
+  if state.depot then state.depot = convert(state.depot) end
   p.x, p.y, p.z, p.f = p1.x, p1.y, p1.z, wf
   state.gps = true
   save()
