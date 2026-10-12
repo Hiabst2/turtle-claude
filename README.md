@@ -27,6 +27,7 @@ Später reicht `update`, um alles auf den neuesten Stand zu bringen.
 | `sethome` | Aktuelle Position wird Heimplatz |
 | `goto x y z` | Zu einer Koordinate fahren |
 | `gpsfix` | Per GPS auf Weltkoordinaten umstellen (Modem im Inventar) |
+| `kolonie [thema]` | MineColonies-Infos: overview, requests, citizens, buildings, workorders, research, visitors |
 | `update` | Alles neu von GitHub laden |
 
 `nav.lua` und `mine.lua` sind Bibliotheken, die von den Programmen geladen werden.

@@ -15,6 +15,7 @@ if not KEY then print("Kein API-Key. Setzen mit:\n  set claude.key sk-ant-...") 
 
 local nav = require("nav")
 local mine = require("mine")
+local colony = require("colony")
 
 local MODEL = settings.get("claude.model", "claude-opus-5")
 local NAME = os.getComputerLabel() or "Hiabst"
@@ -115,6 +116,9 @@ local SYSTEM = ([[Du bist %s, eine Mining Turtle in Minecraft (ComputerCraft). S
 - Positionen sind relativ zum Start, bis gps_locate erfolgreich war. Danach sind es echte Weltkoordinaten.
 - Vorsicht mit Lava und Abgruenden: erst inspizieren, dann graben.
 - Baue nichts ab, was offensichtlich Spielern gehoert (Truhen, Maschinen, Haeuser), ausser man bittet dich darum.
+- Fragen zur MineColonies-Kolonie (Anfragen, Buerger, Gebaeude, Bauauftraege, Forschung, Besucher) beantwortest
+  du mit dem Tool colony. Der Colony Integrator steht am Heimplatz; meldet das Tool, dass er nicht erreichbar ist,
+  frag kurz nach, ob du heimfahren sollst. Fasse die Daten knapp zusammen und nenne das Wichtigste zuerst.
 - Spieler koennen jederzeit "stop" schreiben, dann bricht das laufende Programm ab.]]):format(NAME)
 
 -- jedes Schema braucht eine eigene Tabelle, serializeJSON mag keine doppelt verwendeten
@@ -191,6 +195,18 @@ local TOOLS = {
       type = "object",
       properties = { x = { type = "integer" }, y = { type = "integer" }, z = { type = "integer" } },
       required = { "x", "y", "z" },
+    },
+  },
+  {
+    name = "colony",
+    description = "Liest die MineColonies-Kolonie ueber den Colony Integrator am Heimplatz. overview = Zusammenfassung, "
+      .. "requests = offene Anfragen der Buerger, citizens = alle Buerger mit Job, Zufriedenheit und Problemen, "
+      .. "buildings = Gebaeude mit Level, workorders = Bauauftraege mit fehlendem Material, "
+      .. "research = laufende Forschung, visitors = Besucher in der Taverne mit Anwerbekosten.",
+    input_schema = {
+      type = "object",
+      properties = { topic = { type = "string", enum = colony.TOPIC_NAMES } },
+      required = { "topic" },
     },
   },
   { name = "set_home", description = "Macht die aktuelle Position zum Heimplatz.", input_schema = empty() },
@@ -304,6 +320,7 @@ local function runTool(name, input, say)
     if ok and res then return "Angekommen. " .. nav.where() end
     return "Nicht angekommen: " .. tostring(ok and err or res) .. "\n" .. nav.where()
   end
+  if name == "colony" then return colony.query(input.topic) end
   if name == "set_home" then nav.setHome(); return "Heimplatz gesetzt. " .. nav.where() end
   if name == "refuel" then return "Fuel: " .. tostring(nav.refuel()) end
   if name == "gps_locate" then

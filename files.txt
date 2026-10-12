@@ -8,3 +8,5 @@ gohome.lua
 sethome.lua
 goto.lua
 gpsfix.lua
+colony.lua
+kolonie.lua
