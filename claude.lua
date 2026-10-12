@@ -215,7 +215,30 @@ local function trimHistory()
   end
 end
 
+-- Das CC-Terminal liefert Umlaute als einzelne Latin-1-Bytes (z.B. ae = 0xE4), die API will UTF-8.
+-- Ungueltige Strings werden deshalb Byte fuer Byte von Latin-1 nach UTF-8 umgewandelt.
+local function validUtf8(s)
+  if utf8 and utf8.len then return utf8.len(s) ~= nil end
+  return not s:find("[\128-\255]")
+end
+
+local function toUtf8(s)
+  if validUtf8(s) then return s end
+  return (s:gsub("[\128-\255]", function(c)
+    local b = c:byte()
+    return string.char(0xC0 + math.floor(b / 64), 0x80 + b % 64)
+  end))
+end
+
+local function fixStrings(t)
+  for k, v in pairs(t) do
+    if type(v) == "string" then t[k] = toUtf8(v)
+    elseif type(v) == "table" then fixStrings(v) end
+  end
+end
+
 local function callClaude()
+  fixStrings(history)
   local body = textutils.serializeJSON({
     model = MODEL,
     max_tokens = 4096,
