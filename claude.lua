@@ -16,6 +16,7 @@ if not KEY then print("Kein API-Key. Setzen mit:\n  set claude.key sk-ant-...") 
 local nav = require("nav")
 local mine = require("mine")
 local colony = require("colony")
+local zones = require("zones")
 
 local MODEL = settings.get("claude.model", "claude-opus-5")
 local NAME = os.getComputerLabel() or "Hiabst"
@@ -23,7 +24,8 @@ local TRIGGER = NAME:lower()
 local API = "https://api.anthropic.com/v1/messages"
 local MAX_HISTORY = 40
 local MAX_STEPS = 25
-local VERSION = "2026-10-12c"
+local VERSION = "2026-10-12d"
+local OWNER = settings.get("claude.owner") -- Minecraft-Name, der per Chat Zonen aendern darf
 local DEBUG = settings.get("claude.debug", false) -- set claude.debug true: Tool-Ergebnisse im Terminal zeigen
 
 local chatBox = peripheral.find("chatBox")
@@ -123,6 +125,9 @@ local SYSTEM = ([[Du bist %s, eine Mining Turtle in Minecraft (ComputerCraft). S
   statt zu raten oder zu sagen, dass du keinen Zugriff hast. "Wie geht's der Kolonie?" = overview, bei Problemen
   danach citizens. Der Colony Integrator steht am Heimplatz; meldet das Tool, dass er nicht erreichbar ist,
   frag kurz nach, ob du heimfahren sollst. Fasse die Daten knapp zusammen und nenne das Wichtigste zuerst.
+- Graben ist nur innerhalb der Mining-Zonen und unter dem Hoehenlimit erlaubt, geschuetzte Bloecke nie. Das prueft
+  die Turtle selbst bei jedem Block. Meldet ein Tool "Darf hier nicht graben", versuche es nicht anders, sondern
+  sag dem Spieler, dass er die Zone erweitern muss. Zonen zeigt das Tool zones (action list).
 - Spieler koennen jederzeit "stop" schreiben, dann bricht das laufende Programm ab.]]):format(NAME)
 
 -- jedes Schema braucht eine eigene Tabelle, serializeJSON mag keine doppelt verwendeten
@@ -211,6 +216,24 @@ local TOOLS = {
       type = "object",
       properties = { topic = { type = "string", enum = colony.TOPIC_NAMES } },
       required = { "topic" },
+    },
+  },
+  {
+    name = "zones",
+    description = "Mining-Zonen (Quader in Weltkoordinaten) und Hoehenlimit. list zeigt alles. Aendern (add, here, "
+      .. "delete, maxy) darf nur der Besitzer, das prueft die Turtle selbst. add: name + x1 y1 z1 x2 y2 z2. "
+      .. "here: name + radius (waagrecht), down und up (Bloecke unter/ueber der Turtle). maxy: neues Hoehenlimit.",
+    input_schema = {
+      type = "object",
+      properties = {
+        action = { type = "string", enum = { "list", "add", "here", "delete", "maxy" } },
+        name = { type = "string" },
+        x1 = { type = "integer" }, y1 = { type = "integer" }, z1 = { type = "integer" },
+        x2 = { type = "integer" }, y2 = { type = "integer" }, z2 = { type = "integer" },
+        radius = { type = "integer" }, down = { type = "integer" }, up = { type = "integer" },
+        maxy = { type = "integer" },
+      },
+      required = { "action" },
     },
   },
   { name = "set_home", description = "Macht die aktuelle Position zum Heimplatz.", input_schema = empty() },
@@ -303,7 +326,35 @@ local function reply(text, toChat)
   end
 end
 
-local function runTool(name, input, say)
+-- Zonen aendern darf nur, wer direkt am Terminal sitzt oder per Chat der Besitzer ist
+local function mayEditZones(user)
+  if user == nil then return true end
+  return OWNER ~= nil and user:lower() == OWNER:lower()
+end
+
+local function zoneTool(input, user)
+  local action = input.action or "list"
+  if action == "list" then return zones.describe() end
+  if not mayEditZones(user) then
+    return OWNER and ("Nur " .. OWNER .. " darf Zonen aendern.")
+      or "Zonen per Chat aendern ist aus. Im Terminal: set claude.owner <Minecraft-Name>"
+  end
+  local ok, msg
+  if action == "add" then
+    ok, msg = zones.add(input.name, input.x1, input.y1, input.z1, input.x2, input.y2, input.z2)
+  elseif action == "here" then
+    ok, msg = zones.addAround(input.name, nav.pos(), input.radius, input.down, input.up)
+  elseif action == "delete" then
+    ok, msg = zones.delete(input.name)
+  elseif action == "maxy" then
+    ok, msg = zones.setMaxY(input.maxy)
+  else
+    msg = "unbekannte Aktion " .. tostring(action)
+  end
+  return msg
+end
+
+local function runTool(name, input, say, user)
   term.setTextColor(colors.gray)
   print("[" .. name .. "]")
   term.setTextColor(colors.white)
@@ -313,8 +364,8 @@ local function runTool(name, input, say)
   if name == "stripmine" then return mine.run(mine.stripmine, input, say) end
   if name == "tunnel" then return mine.run(mine.tunnel, input, say) end
   if name == "go_home" then
-    local ok, err = pcall(nav.goHome)
-    if not ok or not err then return "Heimweg fehlgeschlagen: " .. tostring(err) .. "\n" .. nav.where() end
+    local ok, res, err = pcall(nav.goHome)
+    if not ok or not res then return "Heimweg fehlgeschlagen: " .. tostring(ok and err or res) .. "\n" .. nav.where() end
     if input.unload == false then return "Daheim. " .. nav.where() end
     local unloaded, info = nav.unload()
     return (unloaded and ("Daheim, ausgeladen: " .. info .. " Items") or ("Daheim, " .. info)) .. "\n" .. nav.where()
@@ -325,6 +376,7 @@ local function runTool(name, input, say)
     return "Nicht angekommen: " .. tostring(ok and err or res) .. "\n" .. nav.where()
   end
   if name == "colony" then return colony.query(input.topic) end
+  if name == "zones" then return zoneTool(input, user) end
   if name == "set_home" then nav.setHome(); return "Heimplatz gesetzt. " .. nav.where() end
   if name == "refuel" then return "Fuel: " .. tostring(nav.refuel()) end
   if name == "gps_locate" then
@@ -359,7 +411,7 @@ local function handle(user, text, fromChat)
     if #said > 0 then say(table.concat(said, " ")) end
     for _, block in ipairs(resp.content or {}) do
       if block.type == "tool_use" then
-        local out = runTool(block.name, block.input or {}, say)
+        local out = runTool(block.name, block.input or {}, say, user)
         if DEBUG then
           term.setTextColor(colors.lightGray)
           print(out)
@@ -389,11 +441,29 @@ local function enqueue(user, text, fromChat)
   os.queueEvent("claude_msg")
 end
 
+-- Nach einem Neustart (z.B. Chunk entladen) den unterbrochenen Auftrag fortsetzen
+local function resumeJob()
+  local toChat = chatBox ~= nil
+  local say = function(msg) reply(msg, toChat) end
+  say("Ich war kurz weg, mache beim Auftrag weiter.")
+  local result, kind = mine.resume(say)
+  if not result then return end
+  say(result:match("^[^\n]*"))
+  history[#history + 1] = { role = "user",
+    content = "[System] Nach einem Neustart wurde der unterbrochene Auftrag " .. tostring(kind)
+      .. " fortgesetzt. Ergebnis:\n" .. result }
+end
+
 local function worker()
   while true do
     while #queue > 0 do
       local m = table.remove(queue, 1)
-      local ok, e = pcall(handle, m[1], m[2], m[3])
+      local ok, e
+      if m.resume then
+        ok, e = pcall(resumeJob)
+      else
+        ok, e = pcall(handle, m[1], m[2], m[3])
+      end
       if not ok then printError(e) end
     end
     os.pullEvent("claude_msg")
@@ -425,6 +495,10 @@ print("Version " .. VERSION .. ", " .. #TOOLS .. " Tools, Colony Integrator: "
   .. ((peripheral.find("colonyIntegrator") or peripheral.find("colony_integrator")) and "gefunden" or "NICHT gefunden"))
 print(chatBox and ("Chat Box gefunden. Im Chat mit \"" .. NAME .. ", ...\" ansprechen.")
   or "Keine Chat Box. Hier tippen. Abbrechen mit Strg+T.")
+
+if mine.pendingJob() then
+  queue[#queue + 1] = { resume = true }
+end
 
 if chatBox then
   parallel.waitForAny(worker, terminalLoop, chatLoop)

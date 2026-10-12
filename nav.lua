@@ -2,6 +2,8 @@
 -- Wird von claude.lua und den Mining-Programmen per require("nav") geladen.
 -- Die Position wird in /.nav gespeichert und ueberlebt Neustarts.
 
+local zones = require("zones")
+
 local M = {}
 
 local STATE_FILE = "/.nav"
@@ -110,12 +112,24 @@ local function falls(name)
   return name:find("gravel") or name:find("sand") or name:find("concrete_powder")
 end
 
+-- Koordinate des Blocks vorne/oben/unten
+function M.target(dir)
+  local p = state.pos
+  if dir == "up" then return { x = p.x, y = p.y + 1, z = p.z } end
+  if dir == "down" then return { x = p.x, y = p.y - 1, z = p.z } end
+  return { x = p.x + DX[p.f], y = p.y, z = p.z + DZ[p.f] }
+end
+
 -- Graebt in eine Richtung, auch wenn Kies oder Sand nachrutscht.
+-- Jeder Abbau wird gegen Zonen, Hoehenlimit und geschuetzte Bloecke geprueft.
 function M.dig(dir)
-  local detect, dig, inspect = table.unpack(DIG[dir or "front"])
+  dir = dir or "front"
+  local detect, dig, inspect = table.unpack(DIG[dir])
   for _ = 1, 30 do
     if not detect() then return true end
-    local _, data = inspect()
+    local found, data = inspect()
+    local allowed, why = zones.check(M.target(dir), found and data.name or nil, state.gps)
+    if not allowed then return false, "Darf hier nicht graben: " .. why end
     local ok, why = dig()
     if not ok then return false, why or "nicht abbaubar" end
     M.stats.blocks = M.stats.blocks + 1

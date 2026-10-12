@@ -10,3 +10,6 @@ goto.lua
 gpsfix.lua
 colony.lua
 kolonie.lua
+zones.lua
+zone.lua
+startup.lua

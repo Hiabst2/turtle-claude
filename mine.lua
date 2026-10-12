@@ -109,8 +109,30 @@ local function maintain(ctx)
   if nav.freeSlots() < 3 then unloadAndReturn(ctx) end
 end
 
-local function newCtx(say, junk)
-  local start = copy(nav.pos())
+-- Laufender Auftrag wird in /.job gespeichert. Startet die Turtle neu (z.B. Chunk entladen),
+-- kann claude.lua ihn mit M.resume() an der gleichen Stelle fortsetzen.
+local JOB_FILE = "/.job"
+
+local function saveJob(kind, opts)
+  local f = fs.open(JOB_FILE, "w")
+  f.write(textutils.serialize({ kind = kind, opts = opts }))
+  f.close()
+end
+
+function M.pendingJob()
+  if not fs.exists(JOB_FILE) then return nil end
+  local f = fs.open(JOB_FILE, "r")
+  local job = textutils.unserialize(f.readAll())
+  f.close()
+  return job
+end
+
+function M.clearJob()
+  if fs.exists(JOB_FILE) then fs.delete(JOB_FILE) end
+end
+
+local function newCtx(say, junk, savedStart)
+  local start = savedStart and copy(savedStart) or copy(nav.pos())
   -- Hauptachse = Blickrichtung beim Start; zurueck geht es erst quer, dann laengs
   local main = start.f % 2 == 0 and "z" or "x"
   local perp = main == "z" and "x" or "z"
@@ -137,41 +159,57 @@ local function summary(ctx, lines)
   return table.concat(lines, "\n")
 end
 
+-- Bei einem fortgesetzten Auftrag erst durch die eigenen Gaenge zurueck zum Startpunkt fahren.
+-- Von dort faehrt der Auftrag die erledigten Abschnitte einfach ab.
+local function resumeAt(ctx)
+  local s, p = ctx.start, nav.pos()
+  if p.x == s.x and p.y == s.y and p.z == s.z then return end
+  must(nav.goTo(s.x, s.y, s.z, "y" .. ctx.order:sub(1, 2)))
+  nav.face(s.f)
+end
+
 -- Hauptgang geradeaus, alle `spacing` Bloecke ein Seitengang links und rechts.
 -- Gaenge sind 2 hoch, Erze in Boden, Decke und Seitenwaenden werden mitgenommen.
 function M.stripmine(opts, say)
   local length = clamp(opts.length, 1, 256, 32)
   local branch = clamp(opts.branch, 0, 64, 8)
   local spacing = clamp(opts.spacing, 2, 16, 3)
-  local ctx = newCtx(say, opts.drop_junk)
+  local ctx = newCtx(say, opts.drop_junk, opts.start)
   local fwd = ctx.start.f
+  opts.start = ctx.start
+  resumeAt(ctx)
+  saveJob("stripmine", opts)
 
   for i = 1, length do
     maintain(ctx)
     nav.face(fwd)
     must(nav.forward(true))
-    scan(ctx, branch == 0)
-    must(nav.dig("up"))
+    if i > (opts.skip or 0) then -- erledigte Abschnitte nach einem Neustart nur durchfahren
+      scan(ctx, branch == 0)
+      must(nav.dig("up"))
 
-    if branch > 0 and i % spacing == 0 then
-      for _, turn in ipairs({ nav.turnLeft, nav.turnRight }) do
-        nav.face(fwd)
-        turn()
-        local dir = nav.pos().f
-        local walked = 0
-        for _ = 1, branch do
-          maintain(ctx)
-          nav.face(dir)
-          must(nav.forward(true))
-          walked = walked + 1
-          scan(ctx, true)
-          must(nav.dig("up"))
+      if branch > 0 and i % spacing == 0 then
+        for _, turn in ipairs({ nav.turnLeft, nav.turnRight }) do
+          nav.face(fwd)
+          turn()
+          local dir = nav.pos().f
+          local walked = 0
+          for _ = 1, branch do
+            maintain(ctx)
+            nav.face(dir)
+            must(nav.forward(true))
+            walked = walked + 1
+            scan(ctx, true)
+            must(nav.dig("up"))
+          end
+          -- zurueck in den Hauptgang
+          nav.face((dir + 2) % 4)
+          for _ = 1, walked do must(nav.forward(true)) end
         end
-        -- zurueck in den Hauptgang
-        nav.face((dir + 2) % 4)
-        for _ = 1, walked do must(nav.forward(true)) end
+        nav.face(fwd)
       end
-      nav.face(fwd)
+      opts.skip = i
+      saveJob("stripmine", opts)
     end
   end
 
@@ -183,31 +221,38 @@ function M.tunnel(opts, say)
   local length = clamp(opts.length, 1, 256, 16)
   local width = clamp(opts.width, 1, 16, 3)
   local height = clamp(opts.height, 1, 16, 3)
-  local ctx = newCtx(say, opts.drop_junk)
+  local ctx = newCtx(say, opts.drop_junk, opts.start)
   local fwd = ctx.start.f
   local right, left = (fwd + 1) % 4, (fwd + 3) % 4
+  opts.start = ctx.start
+  resumeAt(ctx)
+  saveJob("tunnel", opts)
 
-  for _ = 1, length do
+  for i = 1, length do
     maintain(ctx)
     nav.face(fwd)
     must(nav.forward(true))
-    local col, goRight = 0, true
-    for y = 1, height do
-      if width > 1 then
-        nav.face(goRight and right or left)
-        for _ = 1, width - 1 do
-          must(nav.forward(true))
-          col = col + (goRight and 1 or -1)
+    if i > (opts.skip or 0) then -- erledigte Abschnitte nach einem Neustart nur durchfahren
+      local col, goRight = 0, true
+      for y = 1, height do
+        if width > 1 then
+          nav.face(goRight and right or left)
+          for _ = 1, width - 1 do
+            must(nav.forward(true))
+            col = col + (goRight and 1 or -1)
+          end
+          goRight = not goRight
         end
-        goRight = not goRight
+        if y < height then must(nav.up(true)) end
       end
-      if y < height then must(nav.up(true)) end
+      if col > 0 then
+        nav.face(left)
+        for _ = 1, col do must(nav.forward(true)) end
+      end
+      for _ = 1, height - 1 do must(nav.down(true)) end
+      opts.skip = i
+      saveJob("tunnel", opts)
     end
-    if col > 0 then
-      nav.face(left)
-      for _ = 1, col do must(nav.forward(true)) end
-    end
-    for _ = 1, height - 1 do must(nav.down(true)) end
   end
   nav.face(fwd)
 
@@ -216,10 +261,29 @@ end
 
 -- Fuehrt einen Auftrag aus und liefert immer einen Text zurueck, auch bei Abbruch.
 function M.run(job, opts, say)
+  opts = opts or {}
   nav.stats.blocks = 0
-  local ok, res = pcall(job, opts or {}, say)
+  local ok, res = pcall(job, opts, say)
+  M.clearJob()
   if ok then return "Fertig. " .. res end
-  return "Gestoppt: " .. tostring(res) .. "\n" .. nav.where()
+
+  local msg = "Gestoppt: " .. tostring(res)
+  -- bei Zonen- oder anderen Fehlern sicher heimfahren, bei "stop" stehen bleiben
+  if res ~= "abgebrochen" and opts.start then
+    local back = pcall(tripHome, newCtx(say, true, opts.start))
+    msg = msg .. (back and "\nBin heimgefahren." or "\nDer Heimweg hat nicht geklappt.")
+  end
+  return msg .. "\n" .. nav.where()
+end
+
+-- Setzt einen nach einem Neustart unterbrochenen Auftrag fort. Gibt nil zurueck, wenn keiner offen ist.
+function M.resume(say)
+  local job = M.pendingJob()
+  if not job or not M[job.kind] then
+    M.clearJob()
+    return nil
+  end
+  return M.run(M[job.kind], job.opts, say), job.kind
 end
 
 return M
