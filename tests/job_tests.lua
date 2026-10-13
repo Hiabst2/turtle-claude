@@ -398,9 +398,25 @@ test("Worker: nach einem Auftrag mit Heimfahrt bleibt die Ausruestung dabei (kei
   eq(stored, 0, "Worker darf seine Ausruestung nicht in die Toolbox legen")
 end)
 
+-- Toolbox unter dem Heimplatz nachbilden
+local function toolbox(items)
+  local wrap = peripheral.wrap
+  peripheral.wrap = function(side)
+    if side == "bottom" then
+      return { list = function()
+        local l = {}
+        for i, name in ipairs(items) do l[i] = { name = name, count = 1 } end
+        return l
+      end }
+    end
+    return wrap(side)
+  end
+end
+
 test("Worker: fehlende Ausruestung holt er sich daheim aus der Toolbox", function()
   local w = world()
   local runner, done = realTurtle(w)
+  toolbox({ "advancedperipherals:geo_scanner", "minecraft:chest" })
   turtle.getItemDetail = function(slot) -- nur noch das Modem dabei
     if slot == 2 then return { name = "computercraft:wireless_modem_advanced", count = 1 } end
   end
@@ -495,4 +511,50 @@ test("Worker: Zentrale meldet zu wenig Fuel -> faehrt so viel tanken, wie der Au
     depot = { x = 705, y = 40, z = 605 } }, 110)
   assert(targetWhileRefuel, "ist nicht tanken gefahren: " .. table.concat(results, ","))
   assert(targetWhileRefuel >= need, ("tankt nur bis %d, braucht %d"):format(targetWhileRefuel, need))
+end)
+
+test("Worker: steht woanders, Scanner und Kiste liegen daheim -> trotzdem brauchbar, holt sie fuer den Auftrag", function()
+  local w = world()
+  local runner, done = realTurtle(w)
+  local nav = require("nav")
+  local gear = require("gear")
+  -- zuerst daheim: Toolbox anschauen (Scanner und Kiste liegen drin, die Turtle hat nur das Modem)
+  local carried = { [2] = { name = "computercraft:wireless_modem_advanced", count = 1 } }
+  turtle.getItemDetail = function(slot) return carried[slot] end
+  toolbox({ "advancedperipherals:geo_scanner", "minecraft:chest" })
+  local takenAt
+  gear.take = function(items)
+    local p = nav.pos()
+    takenAt = ("%d %d %d"):format(p.x, p.y, p.z)
+    carried[3] = { name = "advancedperipherals:geo_scanner", count = 1 }
+    carried[4] = { name = "minecraft:chest", count = 1 }
+    return true, "ok"
+  end
+  runner.state().toolbox = { geo_scanner = true, chest = true }
+  -- jetzt steht sie woanders
+  nav.setHome({ x = 705, y = 40, z = 605, f = 0 })
+  nav.goTo(720, 40, 620, "xzy", false)
+
+  local info, needsHome = runner.gearInfo()
+  eq(info.geo_scanner, true) eq(info.chest, true) eq(needsHome, true)
+  eq(runner.step(), "leerlauf", "fliegt nicht ohne Grund heim")
+
+  local job = w.jobs:create({ type = "tunnel", params = { length = 2, width = 1, height = 1,
+    start = { x = 712, y = 40, z = 612, f = 0 } } }, "t")
+  for _ = 1, 8 do
+    sim.advance(16000)
+    runner.step()
+    if w.jobs.state.jobs[job.id].state == "complete" then break end
+  end
+  done()
+  eq(w.jobs.state.jobs[job.id].state, "complete", "Auftrag erledigt")
+  eq(takenAt, "705 40 605", "vorher daheim die Ausruestung geholt")
+end)
+
+test("Kosten: liegt die Ausruestung daheim, wird der Umweg eingerechnet", function()
+  local cost = require("cost")
+  local job = { type = "tunnel", params = { length = 5, start = { x = 100, y = 40, z = 0 } } }
+  local direct = cost.need(job, { pos = { x = 0, y = 40, z = 0 } }, 110)
+  local detour = cost.need(job, { pos = { x = 0, y = 40, z = 0 }, needs_home = true, home = { x = -200, y = 40, z = 0 } }, 110)
+  assert(detour > direct + 300, ("Umweg fehlt: %d vs %d"):format(detour, direct))
 end)

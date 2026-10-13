@@ -178,4 +178,19 @@ function M.store()
   return true, "Ausruestung zurueckgelegt. " .. M.describe()
 end
 
+-- Was liegt in der Toolbox unter der Turtle? { geo_scanner = true, chest = true, ... } oder nil (keine Kiste)
+function M.toolboxContents()
+  local chest = chestBelow()
+  if not chest then return nil end
+  local found = {}
+  for _, item in pairs(chest.list()) do
+    local n = item.name
+    if n:find("geo_scanner", 1, true) then found.geo_scanner = true
+    elseif n:find("player_detector", 1, true) then found.player_detector = true
+    elseif n:find("modem", 1, true) then found.modem = true
+    elseif n == "minecraft:chest" then found.chest = true end
+  end
+  return found
+end
+
 return M

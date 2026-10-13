@@ -21,7 +21,10 @@ local M = {}
 M.IDLE_INTERVAL = settings.get("worker.idle_interval", 15) -- Sekunden zwischen zwei Leerlauf-Syncs
 M.MIN_FUEL = settings.get("worker.min_fuel", 1000) -- darunter faehrt der Worker im Leerlauf tanken
 M.REFUEL_RETRY = 600 -- Sekunden bis zum naechsten Tankversuch, wenn es nicht geklappt hat
-M.GEAR = { "modem", "geo_scanner", "minecraft:chest" } -- das soll ein Worker immer dabeihaben
+M.GEAR = { "modem", "geo_scanner", "chest" } -- das soll ein Worker dabeihaben oder daheim in der Toolbox
+-- Kurzname -> Teil des Itemnamens
+local PATTERN = { modem = "modem", geo_scanner = "geo_scanner", chest = "minecraft:chest",
+  player_detector = "player_detector" }
 M.GEAR_RETRY = 600 -- Sekunden bis zum naechsten Versuch, fehlende Ausruestung zu holen
 M.say = print
 M.now = function() return sync.now() end
@@ -35,13 +38,48 @@ local function save() store.save(FILE, state) end
 
 function M.state() return state end
 
+local function atHome()
+  local p, h = nav.pos(), nav.home()
+  return p.x == h.x and p.y == h.y and p.z == h.z
+end
+
+-- Toolbox unter dem Heimplatz anschauen und merken (geht nur daheim)
+local function noteToolbox()
+  if not atHome() then return end
+  local seen = gear.toolboxContents()
+  if seen then
+    state.toolbox = seen
+    save()
+  end
+end
+
+-- Ausruestung fuer die Zentrale: was die Turtle dabeihat ODER daheim in der Toolbox liegt.
+-- Zweiter Wert: true, wenn etwas davon nur daheim liegt (dann rechnet die Zentrale den Umweg ein).
 function M.gearInfo()
-  return {
-    geo_scanner = gear.has("geo_scanner"),
-    player_detector = gear.has("player_detector"),
-    modem = gear.has("modem"),
-    chest = gear.has("minecraft:chest"),
-  }
+  local info, needsHome = {}, false
+  local toolbox = state.toolbox or {}
+  for k, pattern in pairs(PATTERN) do
+    local carried = gear.has(pattern)
+    info[k] = carried or toolbox[k] == true
+    if not carried and toolbox[k] then needsHome = true end
+  end
+  return info, needsHome
+end
+
+-- fehlende Teile (Kurznamen) daheim aus der Toolbox holen; fliegt dafuer heim
+local function takeFromHome(missing)
+  if not atHome() then
+    M.say("Hole " .. table.concat(missing, ", ") .. " aus der Toolbox daheim.")
+    local ok, err = nav.goHome()
+    if not ok then return false, "Heimweg gescheitert: " .. tostring(err) end
+  end
+  noteToolbox()
+  local patterns = {}
+  for _, k in ipairs(missing) do patterns[#patterns + 1] = PATTERN[k] or k end
+  local ok, text = gear.take(patterns)
+  noteToolbox() -- was jetzt noch drin liegt
+  M.say(ok and ("Ausruestung geholt: " .. table.concat(missing, ", ")) or tostring(text))
+  return ok, text
 end
 
 local function only(n, topic)
@@ -65,10 +103,13 @@ local function hook(n)
   elseif not job and not state.paused then
     only(n, "worker.idle")
     local p, fuel = nav.pos(), nav.fuel()
-    local d = nav.depot()
+    local d, h = nav.depot(), nav.home()
+    local gearInfo, needsHome = M.gearInfo()
     n:send("job", "worker.idle", {
       role = settings.get("claude.role", "miner"),
-      gear = M.gearInfo(),
+      gear = gearInfo,
+      needs_home = needsHome,
+      home = { x = h.x, y = h.y, z = h.z },
       pos = { x = p.x, y = p.y, z = p.z },
       fuel = fuel == math.huge and 1000000 or fuel,
       depot = d and { x = d.x, y = d.y, z = d.z } or nil,
@@ -108,7 +149,8 @@ local function onMessage(msg)
       return
     end
     why, fuelWanted = nil, nil
-    state.job = { id = p.id, epoch = p.epoch, type = p.type, params = p.params or {}, area = p.area }
+    state.job = { id = p.id, epoch = p.epoch, type = p.type, params = p.params or {}, area = p.area,
+      requires = p.requires }
     save()
     M.say(("Neuer Auftrag %s: %s"):format(tostring(p.id), tostring(p.type)))
   elseif msg.topic == "job.cancel" or msg.topic == "job.revoke" then
@@ -138,28 +180,32 @@ local function copyParams(p)
   return opts
 end
 
--- fehlende Ausruestung (Modem, Geo Scanner, Kiste) aus der Toolbox unter dem Heimplatz holen
-local function refillGear()
+-- Leerlauf: Ausruestung pruefen.
+--   daheim:     Toolbox anschauen und fehlende Teile, die drin liegen, mitnehmen
+--   unterwegs:  nur heimfliegen, wenn das Modem fehlt (ohne kann sie nicht funken) oder die Toolbox noch
+--               nie angeschaut wurde. Sonst zaehlt, was daheim liegt - geholt wird es erst fuer einen Auftrag.
+local function idleGear()
+  noteToolbox()
   local missing = {}
-  for _, item in ipairs(M.GEAR) do
-    if not gear.has(item) then missing[#missing + 1] = item end -- Modem darf auch fest ausgeruestet sein
+  for _, k in ipairs(M.GEAR) do
+    if not gear.has(PATTERN[k]) then missing[#missing + 1] = k end -- Modem darf fest ausgeruestet sein
   end
   if #missing == 0 then return nil end
-  local p, h = nav.pos(), nav.home()
-  if p.x ~= h.x or p.y ~= h.y or p.z ~= h.z then
-    -- die Toolbox steht unter dem Heimplatz: erst heimfliegen (geht auch ohne Modem)
-    M.say("Mir fehlt " .. table.concat(missing, ", ") .. ", fliege heim zur Toolbox.")
-    sync.setJob("Ausruestung holen")
-    local ok, err = nav.goHome()
-    sync.setJob(nil)
-    if not ok then
-      M.say("Heimweg gescheitert: " .. tostring(err))
-      return false
+  if atHome() then
+    local available = {}
+    for _, k in ipairs(missing) do
+      if (state.toolbox or {})[k] then available[#available + 1] = k end
     end
+    if #available == 0 then return nil end
+    return (takeFromHome(available))
   end
-  local ok, text = gear.take(missing)
-  M.say(ok and ("Ausruestung geholt: " .. table.concat(missing, ", ")) or tostring(text))
-  return ok
+  if not gear.has("modem") or state.toolbox == nil then
+    sync.setJob("Ausruestung holen")
+    local ok = takeFromHome(missing)
+    sync.setJob(nil)
+    return ok
+  end
+  return nil
 end
 
 -- fuehrt den Auftrag aus und liefert den Ergebnistext ("Fertig. ..." oder "Gestoppt: ...")
@@ -168,6 +214,21 @@ local function runJob(job)
   if mine.pendingJob() then
     local res = mine.resume(M.say) -- nach einem Neustart dort weitermachen
     if res then return res end
+  end
+  -- was der Auftrag braucht und nur daheim in der Toolbox liegt, jetzt holen
+  local missing = {}
+  for _, k in ipairs(job.requires or {}) do
+    if not gear.has(PATTERN[k] or k) then missing[#missing + 1] = k end
+  end
+  if #missing > 0 then
+    sync.setJob(job.id .. " Ausruestung holen")
+    takeFromHome(missing)
+    local still = {}
+    for _, k in ipairs(missing) do
+      if not gear.has(PATTERN[k] or k) then still[#still + 1] = k end
+    end
+    if #still > 0 then return "Gestoppt: Ausruestung fehlt: " .. table.concat(still, ", ") end
+    sync.setJob(job.id .. " " .. job.type)
   end
   local p = job.params or {}
   if p.start then
@@ -227,7 +288,7 @@ function M.step()
   -- fehlt etwas von der Ausruestung, daheim aus der Toolbox holen
   if not state.paused and (not lastGear or now - lastGear >= M.GEAR_RETRY * 1000) then
     lastGear = now
-    local ok, refilled = pcall(refillGear)
+    local ok, refilled = pcall(idleGear)
     if ok and refilled then return "ausgeruestet" end
   end
   -- zu wenig Fuel: unter der Mindestmenge, oder die Zentrale sagt, fuer einen Auftrag reicht es nicht.

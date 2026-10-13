@@ -37,7 +37,12 @@ function M.need(job, worker, travelY)
   if job.type == "goto" and job.params then start = job.params end
   local total = M.RESERVE + M.jobBudget(job.type, job.params)
   if start and start.x and worker.pos then
-    total = total + M.trip(worker.pos, start, travelY)
+    if worker.needs_home and worker.home then
+      -- Ausruestung liegt daheim in der Toolbox: Umweg ueber den Heimplatz
+      total = total + M.trip(worker.pos, worker.home, travelY) + M.trip(worker.home, start, travelY)
+    else
+      total = total + M.trip(worker.pos, start, travelY)
+    end
     if worker.depot then total = total + M.trip(start, worker.depot, travelY) end
   end
   return total

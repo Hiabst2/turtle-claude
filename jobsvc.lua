@@ -140,6 +140,7 @@ function Service:assign(job, workerId)
   job.updated_at = self:now()
   self.host.send(workerId, "job.assign", {
     id = job.id, epoch = job.epoch, type = job.type, params = job.params, area = job.area,
+    requires = job.requires,
   })
   self:note(("%s -> #%s (Epoche %d)"):format(job.id, tostring(workerId), job.epoch))
 end
