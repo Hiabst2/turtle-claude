@@ -6,24 +6,23 @@
 --   4. Geschuetzte Bloecke (Truhen, Kolonie, Computer, Tueren ...) nie, auch nicht in einer Zone.
 -- Gespeichert in /.zones
 
+local store = require("store")
+
 local M = {}
 
 local FILE = "/.zones"
 local data
 
 local function save()
-  local f = fs.open(FILE, "w")
-  f.write(textutils.serialize(data))
-  f.close()
+  store.save(FILE, data)
 end
 
-if fs.exists(FILE) then
-  local f = fs.open(FILE, "r")
-  data = textutils.unserialize(f.readAll())
-  f.close()
-end
+local loadErr
+data, loadErr = store.load(FILE)
 if not data then
+  -- Auch bei kaputter Datei sicher: ohne Zonen wird gar nicht gegraben
   data = { maxY = 50, zones = {} }
+  if loadErr == "corrupt" then printError("Zonendatei kaputt! Alle Zonen sind weg, bitte neu anlegen (zone add).") end
   save()
 end
 

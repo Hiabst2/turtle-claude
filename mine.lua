@@ -5,6 +5,7 @@ local nav = require("nav")
 local zones = require("zones")
 local gear = require("gear")
 local path = require("path")
+local store = require("store")
 local M = {}
 
 local function must(ok, err)
@@ -135,7 +136,8 @@ end
 
 -- Vor jedem Schritt: genug Fuel fuer den Heimweg? Platz im Inventar?
 local function maintain(ctx)
-  local need = nav.dist(nav.pos(), ctx.start) + nav.dist(ctx.start, nav.depot()) + 64
+  -- zurueck zum Startpunkt durch die Gaenge, dann so, wie travel() fliegt (hoch auf Reisehoehe und runter)
+  local need = nav.dist(nav.pos(), ctx.start) + nav.tripCost(ctx.start, nav.depot()) + 64
   if nav.fuel() < need then nav.refuel(need + 800) end
   if nav.fuel() < need then
     -- daheim wird ausgeladen und Kohle aus dem Lager nachgetankt, dann geht es weiter
@@ -155,21 +157,17 @@ end
 local JOB_FILE = "/.job"
 
 local function saveJob(kind, opts)
-  local f = fs.open(JOB_FILE, "w")
-  f.write(textutils.serialize({ kind = kind, opts = opts }))
-  f.close()
+  store.save(JOB_FILE, { kind = kind, opts = opts })
 end
 
 function M.pendingJob()
-  if not fs.exists(JOB_FILE) then return nil end
-  local f = fs.open(JOB_FILE, "r")
-  local job = textutils.unserialize(f.readAll())
-  f.close()
-  return job
+  return (store.load(JOB_FILE))
 end
 
 function M.clearJob()
-  if fs.exists(JOB_FILE) then fs.delete(JOB_FILE) end
+  for _, suffix in ipairs({ "", ".bak", ".tmp" }) do
+    if fs.exists(JOB_FILE .. suffix) then fs.delete(JOB_FILE .. suffix) end
+  end
 end
 
 local function newCtx(say, junk, savedStart)

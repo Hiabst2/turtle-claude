@@ -4,6 +4,7 @@
 
 local zones = require("zones")
 local gear = require("gear")
+local store = require("store")
 
 local M = {}
 
@@ -22,18 +23,22 @@ M.stats = { blocks = 0 }
 local state
 
 local function save()
-  local f = fs.open(STATE_FILE, "w")
-  f.write(textutils.serialize(state))
-  f.close()
+  store.save(STATE_FILE, state)
 end
 
-if fs.exists(STATE_FILE) then
-  local f = fs.open(STATE_FILE, "r")
-  state = textutils.unserialize(f.readAll())
-  f.close()
+local loadErr, fromBackup
+state, loadErr, fromBackup = store.load(STATE_FILE)
+if fromBackup then
+  printError("Positionsdatei war beschaedigt, Sicherung geladen. Zur Sicherheit: gpsfix")
 end
 if not state then
   state = { pos = { x = 0, y = 0, z = 0, f = 0 }, home = { x = 0, y = 0, z = 0, f = 0 }, gps = false }
+  if loadErr == "corrupt" then
+    -- Nicht so tun, als waere alles normal: ohne GPS-Flag graebt die Turtle nicht (Zonen), und der
+    -- Heimplatz gilt als unbekannt, bis er neu gesetzt wird.
+    state.lost = true
+    printError("Positionsdatei kaputt! Position und Heimplatz unbekannt. Bitte gpsfix und sethome.")
+  end
   save()
 end
 
@@ -50,9 +55,22 @@ end
 function M.where()
   local p, h = state.pos, state.home
   local dirs = state.gps and WORLD_DIRS or REL_DIRS
-  return ("Position %s, Blick %s | Zuhause %s%s%s"):format(fmt(p), dirs[p.f], fmt(h),
+  local text = ("Position %s, Blick %s | Zuhause %s%s%s"):format(fmt(p), dirs[p.f], fmt(h),
     state.depot and (" | Lager " .. fmt(state.depot)) or "",
     state.gps and " (GPS-Weltkoordinaten)" or " (relativ zum Start, kein GPS)")
+  if state.lost then
+    text = text .. " | ACHTUNG: Zustandsdatei war kaputt, Heim- und Lagerplatz unbekannt (gpsfix, sethome, setdepot)"
+  end
+  return text
+end
+
+-- Fuel fuer einen Weg, so wie travel() ihn fliegt: weite Wege gehen hoch auf Reisehoehe und wieder runter.
+-- (Die Funktion steht hier oben, weil sie nur rechnet; TRAVEL_Y wird weiter unten gesetzt.)
+function M.tripCost(from, to)
+  local horizontal = math.abs(from.x - to.x) + math.abs(from.z - to.z)
+  if horizontal <= 8 then return horizontal + math.abs(from.y - to.y) end
+  local ty = math.max(M.TRAVEL_Y, from.y)
+  return (ty - from.y) + horizontal + math.abs(ty - to.y)
 end
 
 function M.dist(a, b)
@@ -247,6 +265,7 @@ end
 function M.setHome(p)
   p = p or state.pos
   state.home = { x = p.x, y = p.y, z = p.z, f = p.f }
+  state.lost = nil
   save()
 end
 
@@ -293,7 +312,10 @@ function M.approach(x, y, z)
   return true
 end
 
+local LOST = "Heimplatz unbekannt, weil die Zustandsdatei kaputt war. Erst gpsfix und sethome."
+
 function M.goHome(order)
+  if state.lost then return false, LOST end
   local h = state.home
   local ok, err = M.travel(h.x, h.y, h.z, order)
   if ok then M.face(h.f) end
@@ -301,6 +323,7 @@ function M.goHome(order)
 end
 
 function M.goDepot(order)
+  if state.lost and not state.depot then return false, LOST end
   local d = M.depot()
   local ok, err = M.travel(d.x, d.y, d.z, order)
   if ok then M.face(d.f) end

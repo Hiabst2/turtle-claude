@@ -1,4 +1,5 @@
 update.lua
+store.lua
 nav.lua
 mine.lua
 claude.lua

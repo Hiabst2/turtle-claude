@@ -25,7 +25,7 @@ local TRIGGER = NAME:lower()
 local API = "https://api.anthropic.com/v1/messages"
 local MAX_HISTORY = 40
 local MAX_STEPS = 25
-local VERSION = "2026-10-13g"
+local VERSION = "2026-10-14a"
 local OWNER = settings.get("claude.owner") -- Minecraft-Name, der per Chat Zonen aendern darf
 local DEBUG = settings.get("claude.debug", false) -- set claude.debug true: Tool-Ergebnisse im Terminal zeigen
 
@@ -413,10 +413,19 @@ local function reply(text, toChat)
   end
 end
 
--- Zonen aendern darf nur, wer direkt am Terminal sitzt oder per Chat der Besitzer ist
-local function mayEditZones(user)
+-- Steuern (alles, was etwas veraendert) darf nur, wer direkt am Terminal sitzt oder per Chat der Besitzer ist.
+-- Fragen beantworten darf die Turtle jedem.
+local function isOwner(user)
   if user == nil then return true end
   return OWNER ~= nil and user:lower() == OWNER:lower()
+end
+local mayEditZones = isOwner
+
+local function readOnly(name, input)
+  if name == "status" or name == "colony" then return true end
+  if name == "zones" or name == "gear" then return (input.action or "list") == "list" end
+  if name == "config" then return input.action ~= "set" end
+  return false
 end
 
 -- Zonen-Aenderungen aus dem Chat werden erst ausgefuehrt, wenn der Besitzer selbst mit "ja" bestaetigt.
@@ -542,6 +551,11 @@ local function runTool(name, input, say, user)
   print("[" .. name .. "]")
   term.setTextColor(colors.white)
 
+  if not readOnly(name, input) and not isOwner(user) then
+    return OWNER and ("Nur " .. OWNER .. " darf mich steuern. Fragen beantworte ich aber gern.")
+      or "Steuern per Chat ist aus, solange kein Besitzer gesetzt ist (Terminal: set claude.owner <Name>)."
+  end
+
   if name == "turtle_do" then return runCommands(input) end
   if name == "status" then return status() end
   if name == "stripmine" then return mine.run(mine.stripmine, input, say) end
@@ -585,8 +599,27 @@ local function runTool(name, input, say, user)
   return "unbekanntes Tool: " .. tostring(name)
 end
 
+-- Die API verlangt zu jedem tool_use ein tool_result. Ist die Turtle mitten in einer Runde abgestuerzt,
+-- fehlt es, und ohne Reparatur wuerde jeder weitere Aufruf abgelehnt.
+local function closeOpenToolUses()
+  local last = history[#history]
+  if not (last and last.role == "assistant" and type(last.content) == "table") then return end
+  local results = {}
+  for _, block in ipairs(last.content) do
+    if block.type == "tool_use" then
+      results[#results + 1] = { type = "tool_result", tool_use_id = block.id, is_error = true,
+        content = "Abgebrochen, das Tool wurde nicht fertig ausgefuehrt." }
+    end
+  end
+  if #results > 0 then history[#history + 1] = { role = "user", content = results } end
+end
+
+local stopRequested = false
+
 local function handle(user, text, fromChat)
   nav.resetAbort()
+  stopRequested = false
+  closeOpenToolUses()
   trimHistory()
   local content = user and ("[" .. user .. "] " .. text) or text
   if #notes > 0 then
@@ -614,17 +647,31 @@ local function handle(user, text, fromChat)
     if #said > 0 then say(table.concat(said, " ")) end
     for _, block in ipairs(resp.content or {}) do
       if block.type == "tool_use" then
-        local out = runTool(block.name, block.input or {}, say, user)
+        -- Ein Lua-Fehler im Tool darf die Runde nicht sprengen: er wird zum Fehler-Ergebnis fuer Claude
+        local ok, out = pcall(runTool, block.name, block.input or {}, say, user)
+        local result = { type = "tool_result", tool_use_id = block.id }
+        if ok then
+          result.content = tostring(out)
+        else
+          result.content = "Fehler im Tool: " .. tostring(out)
+          result.is_error = true
+        end
         if DEBUG then
           term.setTextColor(colors.lightGray)
-          print(out)
+          print(result.content)
           term.setTextColor(colors.white)
         end
-        results[#results + 1] = { type = "tool_result", tool_use_id = block.id, content = out }
+        results[#results + 1] = result
       end
     end
+    -- jedes tool_use bekommt sein Ergebnis, auch wenn die Runde hier endet
+    if #results > 0 then history[#history + 1] = { role = "user", content = results } end
     if resp.stop_reason ~= "tool_use" then return end
-    history[#history + 1] = { role = "user", content = results }
+    if stopRequested then
+      -- nach "stop" nicht weitermachen, auch wenn Claude noch etwas vorhatte
+      stopRequested = false
+      return
+    end
   end
   reply("Ich hoer hier mal auf, das waren zu viele Schritte.", fromChat)
 end
@@ -636,6 +683,7 @@ local function enqueue(user, text, fromChat)
   local low = text:lower()
   if low == "stop" or low == "stopp" or low == "halt" then
     nav.abort()
+    stopRequested = true
     queue = {}
     reply("Ok, ich stoppe.", fromChat)
     return
