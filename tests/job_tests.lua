@@ -558,3 +558,45 @@ test("Kosten: liegt die Ausruestung daheim, wird der Umweg eingerechnet", functi
   local detour = cost.need(job, { pos = { x = 0, y = 40, z = 0 }, needs_home = true, home = { x = -200, y = 40, z = 0 } }, 110)
   assert(detour > direct + 300, ("Umweg fehlt: %d vs %d"):format(detour, direct))
 end)
+
+test("Worker: veraltetes Wissen ueber die Toolbox -> fliegt nachschauen, wenn die Zentrale 'fehlt' meldet", function()
+  local w = world()
+  w.jobs:create({ type = "orehunt", params = { start = { x = 712, y = 40, z = 612, f = 0 } } }, "t")
+  local runner, done = realTurtle(w)
+  local nav, gear = require("nav"), require("gear")
+  local carried = { [2] = { name = "computercraft:wireless_modem_advanced", count = 1 },
+    [4] = { name = "minecraft:chest", count = 1 } }
+  turtle.getItemDetail = function(slot) return carried[slot] end
+  -- vor langer Zeit angeschaut: damals ohne Scanner. Inzwischen liegt einer drin.
+  runner.state().toolbox = { chest = true }
+  runner.state().toolboxAt = sim.now() - 3600 * 1000
+  toolbox({ "advancedperipherals:geo_scanner" })
+  local looked = false
+  gear.take = function(items)
+    looked = true
+    carried[3] = { name = "advancedperipherals:geo_scanner", count = 1 }
+    return true, "ok"
+  end
+  nav.goTo(720, 40, 620, "xzy", false) -- steht woanders
+  for _ = 1, 4 do
+    sim.advance(16000)
+    runner.step()
+    if looked then break end
+  end
+  local status = table.concat(runner.status(), " | ")
+  done()
+  eq(looked, true, "ist heim nachschauen geflogen")
+  assert(status:find("Toolbox daheim: geo_scanner"), status)
+end)
+
+test("Worker: Status zeigt, wenn unter dem Heimplatz keine Toolbox ist", function()
+  local w = world()
+  local runner, done = realTurtle(w)
+  turtle.getItemDetail = function(slot)
+    if slot == 2 then return { name = "computercraft:wireless_modem_advanced", count = 1 } end
+  end
+  runner.step() -- daheim, aber unten keine Kiste (peripheral.wrap("bottom") = nil)
+  local status = table.concat(runner.status(), " | ")
+  done()
+  assert(status:find("keine Kiste unter dem Heimplatz"), status)
+end)

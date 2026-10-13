@@ -26,6 +26,7 @@ M.GEAR = { "modem", "geo_scanner", "chest" } -- das soll ein Worker dabeihaben o
 local PATTERN = { modem = "modem", geo_scanner = "geo_scanner", chest = "minecraft:chest",
   player_detector = "player_detector" }
 M.GEAR_RETRY = 600 -- Sekunden bis zum naechsten Versuch, fehlende Ausruestung zu holen
+M.TOOLBOX_STALE = 600 -- Sekunden: so alt darf das Wissen ueber die Toolbox sein, bevor nachgeschaut wird
 M.say = print
 M.now = function() return sync.now() end
 
@@ -33,6 +34,7 @@ local FILE = "/.worker"
 local state = store.load(FILE) or {}
 local lastIdle, lastRefuel, lastGear
 local why, fuelWanted -- letzter Grund von der Zentrale, warum es keinen Auftrag gibt
+local gearCheckSoon, lastLook -- "fehlt ..." gemeldet: Ausruestung gleich pruefen; letzter Kontrollflug
 
 local function save() store.save(FILE, state) end
 
@@ -49,8 +51,12 @@ local function noteToolbox()
   local seen = gear.toolboxContents()
   if seen then
     state.toolbox = seen
-    save()
+    state.toolboxAt = M.now()
+    state.toolboxMissing = nil
+  else
+    state.toolboxMissing = true -- daheim, aber keine Kiste darunter: Heimplatz pruefen
   end
+  save()
 end
 
 -- Ausruestung fuer die Zentrale: was die Turtle dabeihat ODER daheim in der Toolbox liegt.
@@ -136,6 +142,7 @@ local function onMessage(msg)
   elseif msg.topic == "job.none" then
     why = p.reasons
     fuelWanted = tonumber(p.need_fuel)
+    if why and why:find("fehlt", 1, true) then gearCheckSoon = true end
   elseif msg.topic == "job.assign" then
     local job = state.job
     if job then
@@ -199,7 +206,13 @@ local function idleGear()
     if #available == 0 then return nil end
     return (takeFromHome(available))
   end
-  if not gear.has("modem") or state.toolbox == nil then
+  -- Modem fehlt, Toolbox nie gesehen, oder die Zentrale sagt "fehlt ..." und das Wissen ist veraltet.
+  -- Kontrollfluege hoechstens alle TOOLBOX_STALE Sekunden, falls die Toolbox gar nicht lesbar ist.
+  local now = M.now()
+  local stale = not state.toolboxAt or now - state.toolboxAt > M.TOOLBOX_STALE * 1000
+  local mayLook = not lastLook or now - lastLook >= M.TOOLBOX_STALE * 1000
+  if not gear.has("modem") or ((state.toolbox == nil or (why and why:find("fehlt", 1, true) and stale)) and mayLook) then
+    lastLook = now
     sync.setJob("Ausruestung holen")
     local ok = takeFromHome(missing)
     sync.setJob(nil)
@@ -286,8 +299,8 @@ function M.step()
   end
   local now = M.now()
   -- fehlt etwas von der Ausruestung, daheim aus der Toolbox holen
-  if not state.paused and (not lastGear or now - lastGear >= M.GEAR_RETRY * 1000) then
-    lastGear = now
+  if not state.paused and (gearCheckSoon or not lastGear or now - lastGear >= M.GEAR_RETRY * 1000) then
+    lastGear, gearCheckSoon = now, false
     local ok, refilled = pcall(idleGear)
     if ok and refilled then return "ausgeruestet" end
   end
@@ -335,6 +348,19 @@ function M.status()
   else
     lines[#lines + 1] = "Wartet auf Auftrag"
     if why then lines[#lines + 1] = "Kein passender: " .. why end
+  end
+  -- was die Turtle ueber ihre Toolbox daheim weiss
+  if state.toolboxMissing then
+    lines[#lines + 1] = "Toolbox: keine Kiste unter dem Heimplatz gefunden (Heimplatz pruefen)"
+  elseif state.toolbox then
+    local items = {}
+    for k in pairs(state.toolbox) do items[#items + 1] = k end
+    table.sort(items)
+    local age = state.toolboxAt and math.floor((M.now() - state.toolboxAt) / 60000) or 0
+    lines[#lines + 1] = ("Toolbox daheim: %s (vor %d min angeschaut)"):format(
+      #items > 0 and table.concat(items, ", ") or "leer", age)
+  else
+    lines[#lines + 1] = "Toolbox daheim: noch nie angeschaut"
   end
   lines[#lines + 1] = "Fuel: " .. tostring(nav.fuel())
   lines[#lines + 1] = nav.where()
