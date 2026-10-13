@@ -19,6 +19,7 @@ local colony = require("colony")
 local zones = require("zones")
 local gear = require("gear")
 local version = require("version")
+local sync = require("sync")
 
 local MODEL = settings.get("claude.model", "claude-opus-5")
 local NAME = os.getComputerLabel() or "Hiabst"
@@ -99,7 +100,7 @@ local function runCommands(input)
 end
 
 local function status()
-  local lines = { "Version: " .. version.text(),
+  local lines = { "Version: " .. version.text(), sync.describe(),
     "Fuel: " .. tostring(turtle.getFuelLevel()) .. " / " .. tostring(turtle.getFuelLimit()), nav.where(),
     "Ausgewaehlter Slot: " .. turtle.getSelectedSlot(), "Inventar:" }
   for slot = 1, 16 do
@@ -754,7 +755,19 @@ local function resumeJob()
       .. " fortgesetzt. Ergebnis:\n" .. result }
 end
 
+-- TurtleMQ: eingehende Nachrichten anzeigen und Claude mit der naechsten Spielernachricht mitteilen
+sync.onMessage = function(msg)
+  local payload = type(msg.payload) == "table" and textutils.serialize(msg.payload, { compact = true })
+    or tostring(msg.payload)
+  local text = ("%s von #%s: %s"):format(tostring(msg.topic), tostring(msg.source), payload)
+  term.setTextColor(colors.lightBlue)
+  print("[MQ] " .. text)
+  term.setTextColor(colors.white)
+  notes[#notes + 1] = "[TurtleMQ-Nachricht] " .. text
+end
+
 local function worker()
+  local timer
   while true do
     while #queue > 0 do
       local m = table.remove(queue, 1)
@@ -766,7 +779,16 @@ local function worker()
       end
       if not ok then printError(e) end
     end
-    os.pullEvent("claude_msg")
+    -- Leerlauf ist ein sicherer Punkt fuer den TurtleMQ-Sync (die Turtle arbeitet gerade nicht)
+    local ok, e = pcall(sync.maybe)
+    if not ok then printError("TurtleMQ: " .. tostring(e)) end
+    if sync.enabled() then
+      timer = timer or os.startTimer(math.max(5, sync.interval()))
+      local event, id = os.pullEvent()
+      if event == "timer" and id == timer then timer = nil end
+    else
+      os.pullEvent("claude_msg")
+    end
   end
 end
 

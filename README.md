@@ -80,6 +80,22 @@ Eigener Platz zum Ausladen und Tanken, z.B. am Tom's-Storage-Lager:
 - **unter, rechts oder links**: *Filtered Cable Connector* mit Filter Kohle – davon wird nachgetankt (bis 5000, `set claude.fuel_target`)
 - **über** dem Lagerplatz frei bis zur Reisehöhe
 
+## TurtleMQ (Nachrichten zwischen Geräten)
+
+Ein Gateway-Computer (Rolle `gateway`) sammelt Nachrichten und zeigt den Status aller Geräte.
+Turtles melden sich per Heartbeat mit Position, Fuel, Auftrag und Version:
+
+```
+set mq.enabled true      einschalten (Standard: aus)
+set mq.interval 60       Sekunden zwischen zwei Syncs
+set mq.channel 4242      Funkkanal (überall gleich einstellen)
+```
+
+Die Turtle braucht ein Wireless/Ender Modem im Inventar. Für jeden Sync wird es kurz statt der Spitzhacke
+angelegt, die Chat Box bleibt dran. Gesynct wird nur an sicheren Stellen: zwischen zwei Mining-Schritten,
+im Leerlauf von `claude` und am Ende eines Auftrags. Nachrichten gehen nicht verloren, auch wenn die Turtle
+länger kein Signal hat; Post vom Gateway holt sie beim nächsten Sync ab.
+
 ## Entwicklung
 
 - Neue Datei: in die passenden `manifests/*.txt` eintragen. `files.txt` ist nur noch für alte

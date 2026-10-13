@@ -6,6 +6,7 @@ local zones = require("zones")
 local gear = require("gear")
 local path = require("path")
 local store = require("store")
+local sync = require("sync")
 local M = {}
 
 local function must(ok, err)
@@ -134,8 +135,10 @@ local function unloadAndReturn(ctx)
   nav.face(back.f)
 end
 
--- Vor jedem Schritt: genug Fuel fuer den Heimweg? Platz im Inventar?
+-- Vor jedem Schritt: genug Fuel fuer den Heimweg? Platz im Inventar? Und ggf. TurtleMQ-Sync.
 local function maintain(ctx)
+  -- sicherer Punkt zwischen zwei Schritten; ein Fehler beim Funken darf das Minen nie stoppen
+  pcall(sync.maybe)
   -- zurueck zum Startpunkt durch die Gaenge, dann so, wie travel() fliegt (hoch auf Reisehoehe und runter)
   local need = nav.dist(nav.pos(), ctx.start) + nav.tripCost(ctx.start, nav.depot()) + 64
   if nav.fuel() < need then nav.refuel(need + 800) end
@@ -202,7 +205,8 @@ local function placeChest(ctx, opts, kind, keep)
   for s = 1, 16 do
     local item = turtle.getItemDetail(s)
     if item and gear.isGear(item.name) and not item.name:find("pickaxe", 1, true)
-      and not item.name:find("chat_box", 1, true) and not (keep and item.name:find(keep, 1, true)) then
+      and not item.name:find("chat_box", 1, true) and not (keep and item.name:find(keep, 1, true))
+      and not (sync.enabled() and item.name:find("modem", 1, true)) then
       turtle.select(s)
       if turtle.dropDown() then stashed = stashed + 1 end
     end
@@ -280,6 +284,7 @@ function M.stripmine(opts, say)
   placeChest(ctx, opts, "stripmine")
 
   for i = 1, length do
+    sync.setJob(("stripmine %d/%d"):format(i, length))
     maintain(ctx)
     nav.face(fwd)
     if not step(nav.forward(true)) then
@@ -332,6 +337,7 @@ function M.tunnel(opts, say)
   placeChest(ctx, opts, "tunnel")
 
   for i = 1, length do
+    sync.setJob(("tunnel %d/%d"):format(i, length))
     maintain(ctx)
     nav.face(fwd)
     must(nav.forward(true))
@@ -446,6 +452,7 @@ function M.orehunt(opts, say)
       break
     end
     local k = path.key(center.x, center.y, center.z)
+    sync.setJob(("orehunt %d/%d"):format(done + 1, rounds))
     maintain(ctx)
     if step(path.go(map, center, onOre)) then
       local n = scanArea(map, radius)
@@ -470,7 +477,11 @@ function M.run(job, opts, say)
   nav.stats.blocks = 0
   local ok, res = pcall(job, opts, say)
   M.clearJob()
-  if ok then return "Fertig. " .. res end
+  sync.setJob(nil)
+  if ok then
+    pcall(sync.run) -- Auftragsende melden
+    return "Fertig. " .. res
+  end
 
   local msg = "Gestoppt: " .. tostring(res)
   -- bei Zonen- oder anderen Fehlern sicher heimfahren, bei "stop" stehen bleiben
@@ -480,6 +491,7 @@ function M.run(job, opts, say)
     local back = pcall(tripHome, ctx)
     msg = msg .. (back and "\nBin heimgefahren." or "\nDer Heimweg hat nicht geklappt.")
   end
+  pcall(sync.run) -- Fehler/Abbruch melden
   return msg .. "\n" .. nav.where()
 end
 

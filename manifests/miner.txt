@@ -5,6 +5,7 @@ bootstrap.lua
 startup.lua
 store.lua
 mq.lua
+sync.lua
 zones.lua
 gear.lua
 nav.lua

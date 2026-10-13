@@ -3,7 +3,7 @@ package.path = "./?.lua;./tests/?.lua;" .. package.path
 local say = function(s) io.write(s, "\n") end -- print ist durch die CC-Attrappe belegt
 local cc = require("cc")
 
-local MODULES = { "store", "zones", "gear", "nav", "path", "mine", "colony", "mq", "version", "broker" }
+local MODULES = { "store", "zones", "gear", "nav", "path", "mine", "colony", "mq", "version", "broker", "sync" }
 local function fresh()
   cc.reset()
   for _, m in ipairs(MODULES) do package.loaded[m] = nil end
@@ -348,8 +348,10 @@ end)
 
 -- weitere Testdateien bekommen test/eq als globale Funktionen
 _G.test, _G.eq = test, eq
+_G.runClaude, _G.toolUse, _G.text, _G.lastMsg = runClaude, toolUse, text, lastMsg
 dofile("tests/mq_tests.lua")
 dofile("tests/gateway_tests.lua")
+dofile("tests/sync_tests.lua")
 
 say(("\n%d ok, %d fehlgeschlagen"):format(passed, failed))
 os.exit(failed == 0 and 0 or 1)

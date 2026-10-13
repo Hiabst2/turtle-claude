@@ -144,6 +144,18 @@ function Node:forward(msg, to)
   return copy.key
 end
 
+-- Entfernt Nachrichten aus der Outbox, fuer die filter(msg) true liefert (z.B. veraltete Heartbeats)
+function Node:drop(filter)
+  local n = 0
+  for _, msg in ipairs(self:list("outbox")) do
+    if filter(msg) then
+      remove(self:path("outbox", msg.key or msg.id))
+      n = n + 1
+    end
+  end
+  return n
+end
+
 -- Nachrichten in der Outbox, optional nur die an ein bestimmtes Ziel
 function Node:pending(target)
   local n = 0
@@ -259,16 +271,20 @@ function Node:handle(packet)
 end
 
 -- Empfaengt bis zu timeout Sekunden lang (bzw. bis nichts mehr kommt). Gibt die Anzahl neuer Nachrichten zurueck.
-function Node:poll(timeout)
+-- opts.quiet: nach dem ersten Paket nur noch so lange auf weitere warten (Sekunden), dann zurueck
+function Node:poll(timeout, opts)
   if not self.link then return 0 end
+  local quiet = opts and opts.quiet
   local deadline = self.now() + (timeout or 0) * 1000
-  local new = 0
-  repeat
+  local new, got = 0, false
+  while true do
     local left = math.max(0, (deadline - self.now()) / 1000)
+    if got and quiet then left = math.min(left, quiet) end
     local packet = self.link.receive(left)
     if not packet then break end
+    got = true
     if self:handle(packet) == "new" then new = new + 1 end
-  until self.now() >= deadline and not packet
+  end
   return new
 end
 

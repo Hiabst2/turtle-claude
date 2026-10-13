@@ -38,7 +38,7 @@ local function draw()
 end
 
 while true do
-  node:poll(1)
+  node:poll(1, { quiet = 0.2 }) -- nach einem Schwall schnell antworten
   local active = {}
   node:process(function(msg)
     active[msg.source] = true
