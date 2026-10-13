@@ -2,10 +2,13 @@
 --   turtle: claude starten (setzt unterbrochene Auftraege selbst fort)
 --   miner:  unterbrochenen Auftrag fortsetzen
 --   gps:    GPS-Sender starten
+--   gateway: TurtleMQ-Gateway starten
 local role = settings.get("claude.role", "turtle")
 
 if role == "gps" then
   shell.run("gpshost")
+elseif role == "gateway" then
+  shell.run("gateway")
 elseif role == "turtle" then
   if settings.get("claude.key") and fs.exists("claude.lua") then shell.run("claude") end
 elseif role == "miner" then

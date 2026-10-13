@@ -12,6 +12,10 @@
 --   node:process(function(msg) ... end)
 --
 -- Mehrere Knoten koennen im selben Programm laufen (Tests simulieren damit ein ganzes Netz).
+--
+-- ACKs gelten pro Strecke: jedes gesendete Paket traegt in "hop" den Sender dieser Strecke, das ACK
+-- geht an hop. Leitet das Gateway weiter, bestaetigt der Empfaenger also dem Gateway. Die id bleibt
+-- dabei gleich, so erkennt der Empfaenger Doppelte auch ueber verschiedene Wege.
 
 local store = require("store")
 
@@ -81,7 +85,8 @@ function Node:list(sub)
   end
   table.sort(msgs, function(a, b)
     if a.ts ~= b.ts then return a.ts < b.ts end
-    return a.id < b.id
+    if a.id ~= b.id then return a.id < b.id end
+    return (a.key or "") < (b.key or "")
   end)
   return msgs
 end
@@ -128,8 +133,24 @@ function Node:send(target, topic, payload, opts)
   return msg.id
 end
 
-function Node:pending()
-  return #self:list("outbox")
+-- Legt eine fremde Nachricht (unveraenderte id) zum Weiterleiten an "to" in die Outbox.
+-- Mehrere Kopien derselben Nachricht an verschiedene Empfaenger unterscheiden sich im key.
+function Node:forward(msg, to)
+  local copy = shallowCopy(msg)
+  copy.target = to
+  copy.key = msg.id .. "@" .. tostring(to)
+  copy.attempt, copy.next, copy.tries, copy.error, copy.hop = 0, nil, nil, nil, nil
+  store.save(self:path("outbox", copy.key), copy)
+  return copy.key
+end
+
+-- Nachrichten in der Outbox, optional nur die an ein bestimmtes Ziel
+function Node:pending(target)
+  local n = 0
+  for _, msg in ipairs(self:list("outbox")) do
+    if target == nil or msg.target == target then n = n + 1 end
+  end
+  return n
 end
 
 local function backoff(attempt)
@@ -139,6 +160,7 @@ end
 -- Sendet alle faelligen Nachrichten der Outbox und wartet bis zu ACK_TIMEOUT auf die ACKs.
 -- Nebenbei ankommende Nachrichten werden ganz normal angenommen.
 -- opts.force: auch Nachrichten senden, deren Wartezeit (Backoff) noch nicht um ist (Sync-Fenster)
+-- opts.target: nur Nachrichten an dieses Ziel (Gateway: Postfach eines Geraets, das sich gerade meldet)
 function Node:flush(opts)
   opts = opts or {}
   local result = { sent = 0, acked = 0, dropped = {} }
@@ -146,17 +168,21 @@ function Node:flush(opts)
   local now = self.now()
   self.waiting = {}
   for _, msg in ipairs(self:list("outbox")) do
-    if now - msg.ts > msg.ttl * 1000 then
-      remove(self:path("outbox", msg.id))
+    local file = self:path("outbox", msg.key or msg.id)
+    if opts.target ~= nil and msg.target ~= opts.target then
+      -- anderes Ziel, diesmal nicht
+    elseif now - msg.ts > msg.ttl * 1000 then
+      remove(file)
       result.dropped[#result.dropped + 1] = msg
     elseif opts.force or not msg.next or msg.next <= now then
       msg.attempt = (msg.attempt or 0) + 1
       msg.next = now + backoff(msg.attempt)
-      store.save(self:path("outbox", msg.id), msg)
+      store.save(file, msg)
       local packet = shallowCopy(msg)
-      packet.next = nil
+      packet.next, packet.key = nil, nil
+      packet.hop = self.id
       self.link.transmit(packet)
-      self.waiting[msg.id] = true
+      self.waiting[msg.key or msg.id] = true
       result.sent = result.sent + 1
     end
   end
@@ -189,7 +215,7 @@ function Node:ack(msg)
     id = self:newId(),
     ts = self.now(),
     source = self.id,
-    target = msg.source,
+    target = msg.hop or msg.source, -- ACK gilt fuer diese Strecke
     topic = "mq.ack",
     reply_to = msg.id,
   })
@@ -201,12 +227,14 @@ function Node:handle(packet)
 
   if packet.topic == "mq.ack" then
     if packet.target ~= self.id or type(packet.reply_to) ~= "string" then return "ignored" end
-    local path = self:path("outbox", packet.reply_to)
-    if fs.exists(path) or fs.exists(path .. ".bak") then
-      remove(path)
-      self.acked = (self.acked or 0) + 1
+    for _, key in ipairs({ packet.reply_to, packet.reply_to .. "@" .. tostring(packet.source) }) do
+      local path = self:path("outbox", key)
+      if fs.exists(path) or fs.exists(path .. ".bak") then
+        remove(path)
+        self.acked = (self.acked or 0) + 1
+      end
+      if self.waiting then self.waiting[key] = nil end
     end
-    if self.waiting then self.waiting[packet.reply_to] = nil end
     return "ack"
   end
 
@@ -268,6 +296,20 @@ function Node:process(handler)
     end
   end
   return done
+end
+
+-- Am Gateway anmelden ------------------------------------------------------------
+
+-- Meldet Namen (z.B. "job") und Infos (label, role, ...) beim Gateway an
+function Node:register(names, info)
+  info = info or {}
+  info.names = names
+  return self:send("gateway", "mq.register", info)
+end
+
+-- Abonniert Topics: genauer Name, Praefix mit "*" (z.B. "worker.*") oder "*" fuer alles
+function Node:subscribe(topics)
+  return self:send("gateway", "mq.subscribe", { topics = topics })
 end
 
 -- Funk ueber ein Modem ---------------------------------------------------------

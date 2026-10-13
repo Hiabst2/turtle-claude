@@ -18,6 +18,7 @@ Der Bootstrap fragt die Rolle ab und richtet alles ein:
 | `turtle` | Turtle | Claude-Turtle: Chat, Mining, Kolonie (fragt API-Key, Besitzer, Name) |
 | `miner` | Turtle | Mining-Programme ohne Claude, Bedienung im Terminal |
 | `gps` | Computer | GPS-Sender (fragt die eigenen Koordinaten) |
+| `gateway` | Computer | TurtleMQ-Gateway mit Statusanzeige aller Geräte (Ender Modem, Chunk dauerhaft laden) |
 
 Später reicht `update`. Es lädt nur die Dateien der eigenen Rolle (`manifests/<rolle>.txt`), alle vom
 selben Commit, und tauscht erst aus, wenn alles da ist. `version` zeigt, was installiert ist.
@@ -41,6 +42,8 @@ Rolle und Kanal ändern: `set claude.role <rolle>`, `set claude.channel <branch>
 | `update [force]` | Programme der eigenen Rolle neu von GitHub laden |
 | `version` | Installierte Version (Commit, Kanal, Rolle) |
 | `bootstrap [rolle] [kanal]` | Gerät neu einrichten |
+| `gateway` | TurtleMQ-Gateway (Rolle `gateway`, startet automatisch) |
+| `mqtail [topic ...]` | TurtleMQ-Nachrichten live mitlesen, z.B. `mqtail worker.*` |
 
 `nav.lua` und `mine.lua` sind Bibliotheken, die von den Programmen geladen werden.
 Der API-Key liegt nur in den Turtle-Settings, nie im Repo.

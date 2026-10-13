@@ -2,74 +2,10 @@
 -- Ein simuliertes Funknetz verliert, verdoppelt und vertauscht Pakete; die Tests pruefen,
 -- dass trotzdem jede Nachricht genau einmal verarbeitet wird.
 
-local function copy(t)
-  if type(t) ~= "table" then return t end
-  local c = {}
-  for k, v in pairs(t) do c[k] = copy(v) end
-  return c
-end
-
--- reproduzierbarer Zufall
-local function rng(seed)
-  local s = seed
-  return function()
-    s = (s * 1103515245 + 12345) % 2147483648
-    return s / 2147483648
-  end
-end
-
--- Netz mit einstellbarer Stoerung. Jeder Knoten bekommt einen link; receive() laesst zuerst alle
--- anderen Knoten ihre Warteschlange abarbeiten (die schicken dabei ACKs) und liefert dann das
--- naechste Paket fuer diesen Knoten.
-local function newNet(o)
-  o = o or {}
-  local rnd = rng(o.seed or 42)
-  local net = { links = {}, transmitted = 0 }
-  function net.link()
-    local link = { queue = {} }
-    function link.transmit(packet)
-      net.transmitted = net.transmitted + 1
-      for _, other in ipairs(net.links) do
-        if other ~= link and rnd() >= (o.loss or 0) then
-          for _ = 1, (rnd() < (o.dup or 0)) and 2 or 1 do
-            if rnd() < (o.reorder or 0) then
-              table.insert(other.queue, 1, copy(packet))
-            else
-              other.queue[#other.queue + 1] = copy(packet)
-            end
-          end
-        end
-      end
-    end
-    function link.receive()
-      net.pump(link)
-      return table.remove(link.queue, 1)
-    end
-    net.links[#net.links + 1] = link
-    return link
-  end
-  -- alle anderen Knoten nehmen an, was bei ihnen angekommen ist
-  function net.pump(except)
-    for _, other in ipairs(net.links) do
-      if other ~= except and other.node then
-        while #other.queue > 0 do other.node:handle(table.remove(other.queue, 1)) end
-      end
-    end
-  end
-  return net
-end
-
-local clock = 1000000
-local function now() return clock end
-
-local function node(net, id, extra)
-  local link = net.link()
-  local o = { id = id, dir = "/n" .. id .. "/.mq", link = link, now = now }
-  for k, v in pairs(extra or {}) do o[k] = v end
-  local n = require("mq").new(o)
-  link.node = n
-  return n
-end
+local sim = require("net")
+local function newNet(o) return sim.new(o) end
+local function node(net, id, extra) return net.node(id, extra) end
+local now = sim.now
 
 test("MQ: Nachricht kommt an, ACK leert die Outbox", function()
   local net = newNet()
@@ -95,7 +31,7 @@ test("MQ: 100 Nachrichten ueber ein schlechtes Netz kommen genau einmal an", fun
   local rounds = 0
   while (a:pending() > 0 or #b:list("inbox") > 0) and rounds < 60 do
     rounds = rounds + 1
-    clock = clock + 61000 -- Backoff ist abgelaufen
+    sim.advance(61000) -- Backoff ist abgelaufen
     a:flush()
     net.pump()
     b:process(function(m)
@@ -125,7 +61,7 @@ test("MQ: Haertetest - 20 Stoermuster, in beide Richtungen gleichzeitig", functi
       end
     end
     for _ = 1, 80 do
-      clock = clock + 61000
+      sim.advance(61000)
       a:flush() b:flush()
       a:process(collect(gotA)) b:process(collect(gotB))
       if a:pending() == 0 and b:pending() == 0 then break end
@@ -178,7 +114,7 @@ test("MQ: Absturz nach dem Speichern verliert nichts und verarbeitet nichts dopp
   b2:process(function() n = n + 1 end)
   eq(n, 1)
   -- dieselbe Nachricht kommt noch einmal (z.B. weil das ACK verloren ging)
-  eq(b2:handle({ v = 1, id = id, ts = clock, source = 1, target = 2, topic = "test.x", ttl = 3600 }), "dup")
+  eq(b2:handle({ v = 1, id = id, ts = sim.clock, source = 1, target = 2, topic = "test.x", ttl = 3600 }), "dup")
   b2:process(function() n = n + 1 end)
   eq(n, 1, "nicht noch einmal verarbeitet")
 end)
@@ -186,7 +122,7 @@ end)
 test("MQ: gesehene ids ueberleben einen Neustart", function()
   local net = newNet()
   local b = node(net, 2)
-  local pkt = { v = 1, id = "1:5:1", ts = clock, source = 1, target = 2, topic = "t", ttl = 3600 }
+  local pkt = { v = 1, id = "1:5:1", ts = sim.clock, source = 1, target = 2, topic = "t", ttl = 3600 }
   eq(b:handle(pkt), "new")
   b:process(function() end)
   local b2 = require("mq").new({ id = 2, dir = "/n2/.mq", link = b.link, now = now })
@@ -199,7 +135,7 @@ test("MQ: abgelaufene Nachrichten werden verworfen und gemeldet", function()
   local id = a:send(2, "t", {}, { ttl = 10 })
   a:flush()
   eq(a:pending(), 1, "noch nicht abgelaufen")
-  clock = clock + 11000
+  sim.advance(11000)
   local r = a:flush()
   eq(#r.dropped, 1) eq(r.dropped[1].id, id)
   eq(a:pending(), 0)
@@ -217,7 +153,7 @@ end)
 test("MQ: Fehler im Handler -> spaeter erneut, nach 3 Versuchen dead letter", function()
   local net = newNet()
   local b = node(net, 2)
-  local pkt = { v = 1, id = "1:9:1", ts = clock, source = 1, target = 2, topic = "t", ttl = 3600 }
+  local pkt = { v = 1, id = "1:9:1", ts = sim.clock, source = 1, target = 2, topic = "t", ttl = 3600 }
   b:handle(pkt)
   local tries = 0
   local function bad() tries = tries + 1 error("kaputt") end
@@ -236,7 +172,7 @@ test("MQ: fremde Ziele werden ignoriert, Namen und Broadcast angenommen", functi
   local net = newNet()
   local b = node(net, 2, { names = { "gateway" } })
   local function pkt(target, n)
-    return { v = 1, id = "1:1:" .. n, ts = clock, source = 1, target = target, topic = "t", ttl = 3600 }
+    return { v = 1, id = "1:1:" .. n, ts = sim.clock, source = 1, target = target, topic = "t", ttl = 3600 }
   end
   eq(b:handle(pkt(3, 1)), "ignored")
   eq(b:handle(pkt("gateway", 2)), "new")

@@ -21,6 +21,8 @@ fs = {
   delete = function(p) os.execute("rm -rf '" .. real(p) .. "'") end,
   move = function(a, b) assert(os.rename(real(a), real(b))) end,
   open = function(p, mode)
+    -- wie in CC: beim Schreiben werden fehlende Ordner angelegt
+    if mode == "w" then os.execute("mkdir -p \"$(dirname '" .. real(p) .. "')\"") end
     local f = io.open(real(p), mode == "w" and "w" or "r")
     if not f then return nil end
     return {

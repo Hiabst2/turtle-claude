@@ -8,6 +8,7 @@ local ROLES = {
   turtle = { turtle = true, text = "Claude-Turtle: Chat, Mining, Kolonie (braucht API-Key und Chat Box)" },
   miner = { turtle = true, text = "Mining-Turtle ohne Claude (stripmine, orehunt, ... im Terminal)" },
   gps = { turtle = false, text = "GPS-Sender (Computer mit Modem)" },
+  gateway = { turtle = false, text = "TurtleMQ-Gateway (Computer mit Ender Modem, Chunk dauerhaft laden!)" },
 }
 
 local function ask(question, default, hidden)
@@ -47,6 +48,8 @@ if not args[1] then
       settings.set("gps." .. axis, tonumber(ask(axis, settings.get("gps." .. axis))))
     end
     if not os.getComputerLabel() then os.setComputerLabel("gps-" .. os.getComputerID()) end
+  elseif role == "gateway" then
+    if not os.getComputerLabel() then os.setComputerLabel("gateway") end
   end
 end
 settings.save()
@@ -65,6 +68,8 @@ if role == "turtle" then
   print("Naechste Schritte: Turtle an den Heimplatz stellen, sethome, gpsfix, dann reboot.")
 elseif role == "miner" then
   print("Naechste Schritte: sethome, gpsfix, Zone anlegen (zone), dann z.B. orehunt.")
+elseif role == "gateway" then
+  print("Neustart startet das Gateway: reboot. Den Chunk per FTB Chunks dauerhaft laden!")
 else
   print("Neustart startet den GPS-Sender: reboot")
 end
