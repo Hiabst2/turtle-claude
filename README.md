@@ -20,6 +20,7 @@ Der Bootstrap fragt die Rolle ab und richtet alles ein:
 | `gps` | Computer | GPS-Sender (fragt die eigenen Koordinaten) |
 | `gateway` | Computer | TurtleMQ-Gateway mit Statusanzeige aller Geräte (Ender Modem, Chunk dauerhaft laden) |
 | `central` | Computer | Zentrale mit Job-Dienst: verteilt Aufträge an Miner (Ender Modem, Chunk dauerhaft laden) |
+| `command` | Computer | Leitstelle: Claude mit Chat Box, steuert die Turtles über Aufträge (fragt API-Key, Besitzer, Name) |
 
 Später reicht `update`. Es lädt nur die Dateien der eigenen Rolle (`manifests/<rolle>.txt`), alle vom
 selben Commit, und tauscht erst aus, wenn alles da ist. `version` zeigt, was installiert ist.
@@ -140,6 +141,20 @@ place depot 740 64 615 nord             place home Miner1 730 70 640 ost   place
 
 `depot` ist der gemeinsame Lagerplatz aller Turtles, `home <Name>` der Heimplatz einer Turtle
 (Blickrichtung = wohin die Turtle auf dem Platz schaut).
+
+## Leitstelle (Command-Node)
+
+Claude läuft auf einem Computer mit Chat Box und Ender Modem (Rolle `command`) und steuert die Turtles nur
+über Aufträge an die Zentrale. Beispiele im Chat:
+
+- „Leitstelle, lass eine Turtle in mine1 nach Erz suchen, 2 Bereiche“
+- „Leitstelle, was läuft gerade?“ / „Wie geht's den Turtles?“ / „Zeig mir die Zonen“
+- „Leitstelle, brich J3 ab“
+- „Leitstelle, leg eine Zone mine2 an …“ → muss der Besitzer mit „ja“ bestätigen
+
+Fertige und gescheiterte Aufträge meldet die Leitstelle von selbst im Chat. Steuern darf nur der Besitzer,
+Fragen darf jeder stellen. Mit Colony Integrator am Computer beantwortet sie auch Fragen zur Kolonie.
+Die All-in-one-Turtle (`claude`, Rolle `turtle`) ist Altlast und wird nicht mehr weiterentwickelt.
 
 ## Entwicklung
 

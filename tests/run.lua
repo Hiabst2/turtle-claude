@@ -3,7 +3,7 @@ package.path = "./?.lua;./tests/?.lua;" .. package.path
 local say = function(s) io.write(s, "\n") end -- print ist durch die CC-Attrappe belegt
 local cc = require("cc")
 
-local MODULES = { "store", "zones", "gear", "nav", "path", "mine", "colony", "mq", "version", "broker", "sync", "crypto", "services", "jobsvc", "jobrunner", "cost", "mapsvc", "pathsvc" }
+local MODULES = { "store", "zones", "gear", "nav", "path", "mine", "colony", "mq", "version", "broker", "sync", "crypto", "services", "jobsvc", "jobrunner", "cost", "mapsvc", "pathsvc", "agent", "commander" }
 local function fresh()
   cc.reset()
   for _, m in ipairs(MODULES) do package.loaded[m] = nil end
@@ -275,7 +275,7 @@ test("P0.6: Manifeste passen zum Repository", function()
     for l in io.lines(file) do if not l:match("^%s*#") and l ~= "" then t[#t + 1] = l end end
     return t
   end
-  for _, role in ipairs({ "turtle", "miner", "gps", "gateway", "central" }) do
+  for _, role in ipairs({ "turtle", "miner", "gps", "gateway", "central", "command" }) do
     for _, name in ipairs(lines("manifests/" .. role .. ".txt")) do
       assert(io.open(name), role .. ": Datei fehlt im Repository: " .. name)
     end
@@ -356,6 +356,7 @@ dofile("tests/gateway_tests.lua")
 dofile("tests/sync_tests.lua")
 dofile("tests/sign_tests.lua")
 dofile("tests/job_tests.lua")
+dofile("tests/command_tests.lua")
 
 say(("\n%d ok, %d fehlgeschlagen"):format(passed, failed))
 os.exit(failed == 0 and 0 or 1)

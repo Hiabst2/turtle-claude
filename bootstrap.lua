@@ -10,6 +10,7 @@ local ROLES = {
   gps = { turtle = false, text = "GPS-Sender (Computer mit Modem)" },
   gateway = { turtle = false, text = "TurtleMQ-Gateway (Computer mit Ender Modem, Chunk dauerhaft laden!)" },
   central = { turtle = false, text = "Zentrale mit Job-Dienst (Computer mit Ender Modem, Chunk dauerhaft laden!)" },
+  command = { turtle = false, text = "Leitstelle: Claude mit Chat Box (Computer mit Chat Box + Ender Modem)" },
 }
 
 local function ask(question, default, hidden)
@@ -37,12 +38,13 @@ settings.set("claude.channel", channel)
 
 -- Rollenspezifische Einstellungen nur abfragen, wenn interaktiv eingerichtet wird
 if not args[1] then
-  if role == "turtle" then
+  if role == "turtle" or role == "command" then
     if not settings.get("claude.key") then
       settings.set("claude.key", ask("Claude API-Key (sk-ant-...)", nil, true))
     end
-    settings.set("claude.owner", ask("Dein Minecraft-Name (darf die Turtle steuern)", settings.get("claude.owner")))
-    os.setComputerLabel(ask("Name der Turtle (Chat-Ansprache)", os.getComputerLabel() or "Hiabst"))
+    settings.set("claude.owner", ask("Dein Minecraft-Name (darf steuern)", settings.get("claude.owner")))
+    os.setComputerLabel(ask("Name im Chat (Ansprache)", os.getComputerLabel()
+      or (role == "command" and "Leitstelle" or "Hiabst")))
   elseif role == "gps" then
     print("Koordinaten DIESES Computers (F3, Targeted Block):")
     for _, axis in ipairs({ "x", "y", "z" }) do
@@ -83,6 +85,8 @@ elseif role == "miner" then
   print("dann reboot: der Worker-Dienst holt sich Auftraege von der Zentrale.")
 elseif role == "central" then
   print("Neustart startet die Zentrale: reboot. Den Chunk per FTB Chunks dauerhaft laden!")
+elseif role == "command" then
+  print("Neustart startet die Leitstelle: reboot. Chat Box und Ender Modem anschliessen.")
 elseif role == "gateway" then
   print("Neustart startet das Gateway: reboot. Den Chunk per FTB Chunks dauerhaft laden!")
 else

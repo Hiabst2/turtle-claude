@@ -1,7 +1,8 @@
 -- startup: was nach jedem Neustart laeuft (z.B. wenn der Chunk wieder geladen wird), je nach Rolle
 --   turtle: claude starten (setzt unterbrochene Auftraege selbst fort)
 --   miner:  Worker-Dienst (Auftraege von der Zentrale); ohne TurtleMQ nur unterbrochenen Auftrag fortsetzen
---   central: Zentrale mit Job-Dienst
+--   central: Zentrale mit Job-, Map- und Path-Dienst
+--   command: Leitstelle (Claude mit Chat Box)
 --   gps:    GPS-Sender starten
 --   gateway: TurtleMQ-Gateway starten
 local role = settings.get("claude.role", "turtle")
@@ -12,6 +13,8 @@ elseif role == "gateway" then
   shell.run("gateway")
 elseif role == "central" then
   shell.run("central")
+elseif role == "command" then
+  if settings.get("claude.key") then shell.run("command") end
 elseif role == "turtle" then
   if settings.get("claude.key") and fs.exists("claude.lua") then shell.run("claude") end
 elseif role == "miner" and settings.get("mq.enabled", false) then
