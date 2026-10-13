@@ -25,7 +25,7 @@ local TRIGGER = NAME:lower()
 local API = "https://api.anthropic.com/v1/messages"
 local MAX_HISTORY = 40
 local MAX_STEPS = 25
-local VERSION = "2026-10-14a"
+local VERSION = "2026-10-14b"
 local OWNER = settings.get("claude.owner") -- Minecraft-Name, der per Chat Zonen aendern darf
 local DEBUG = settings.get("claude.debug", false) -- set claude.debug true: Tool-Ergebnisse im Terminal zeigen
 
@@ -379,24 +379,61 @@ local function callClaude()
     messages = history,
   }, { unicode_strings = true })
 
-  local res, err, errRes = http.post({
-    url = API,
-    body = body,
-    headers = {
-      ["content-type"] = "application/json",
-      ["x-api-key"] = KEY,
-      ["anthropic-version"] = "2023-06-01",
-    },
-    timeout = 60, -- CC erlaubt maximal 60 Sekunden
-  })
-  if not res then
-    local detail = ""
-    if errRes then detail = errRes.readAll() or ""; errRes.close() end
-    return nil, tostring(err) .. " " .. detail
+  -- Ueberlastung (429, 529), Serverfehler und Timeouts sind meist nach ein paar Sekunden vorbei.
+  -- Fehler in der Anfrage selbst (400 usw.) werden nicht wiederholt.
+  local RETRY = { [429] = true, [500] = true, [502] = true, [503] = true, [529] = true }
+  local waits = { 2, 5, 10 }
+  for attempt = 1, #waits + 1 do
+    local res, err, errRes = http.post({
+      url = API,
+      body = body,
+      headers = {
+        ["content-type"] = "application/json",
+        ["x-api-key"] = KEY,
+        ["anthropic-version"] = "2023-06-01",
+      },
+      timeout = 60, -- CC erlaubt maximal 60 Sekunden
+    })
+    if res then
+      local text = res.readAll()
+      res.close()
+      return textutils.unserializeJSON(text)
+    end
+    local code, detail = nil, ""
+    if errRes then
+      code = errRes.getResponseCode and errRes.getResponseCode()
+      detail = errRes.readAll() or ""
+      errRes.close()
+    end
+    -- ohne Antwort (Timeout, Netz) oder mit voruebergehendem Fehler: nochmal versuchen
+    local retry = code == nil or RETRY[code]
+    if not retry or attempt > #waits then
+      return nil, tostring(err) .. " " .. detail
+    end
+    sleep(waits[attempt])
   end
-  local text = res.readAll()
-  res.close()
-  return textutils.unserializeJSON(text)
+end
+
+-- Teilt Text fuer die Chat Box: am letzten Leerzeichen vor der Grenze, nie mitten in einem UTF-8-Zeichen
+local function splitChat(text, max)
+  local parts = {}
+  text = text:gsub("%s+$", "")
+  while #text > max do
+    local cut = max
+    local space = text:sub(1, max):match(".*()%s")
+    if space and space > max / 2 then
+      cut = space - 1
+    else
+      -- Folgebytes eines UTF-8-Zeichens (0x80-0xBF) nicht abtrennen
+      while cut > 1 and text:byte(cut + 1) and text:byte(cut + 1) >= 0x80 and text:byte(cut + 1) <= 0xBF do
+        cut = cut - 1
+      end
+    end
+    parts[#parts + 1] = text:sub(1, cut)
+    text = text:sub(cut + 1):gsub("^%s+", "")
+  end
+  if #text > 0 then parts[#parts + 1] = text end
+  return parts
 end
 
 local function reply(text, toChat)
@@ -404,8 +441,7 @@ local function reply(text, toChat)
   print(NAME .. ": " .. text)
   term.setTextColor(colors.white)
   if not (toChat and chatBox) then return end
-  for i = 1, #text, 240 do
-    local chunk = text:sub(i, i + 239)
+  for _, chunk in ipairs(splitChat(text, 240)) do
     for _ = 1, 5 do -- die Chat Box hat einen Cooldown
       if chatBox.sendMessage(chunk, NAME) then break end
       sleep(1)
@@ -743,7 +779,9 @@ end
 local function chatLoop()
   while true do
     local _, user, msg = os.pullEvent("chat")
-    if msg:lower():sub(1, #TRIGGER) == TRIGGER then
+    -- nach dem Namen muss die Nachricht enden oder ein Trennzeichen kommen ("Hiabstxyz" ist jemand anderes)
+    local after = msg:sub(#TRIGGER + 1, #TRIGGER + 1)
+    if msg:lower():sub(1, #TRIGGER) == TRIGGER and (after == "" or after:match("[%s,:!.?]")) then
       local text = msg:sub(#TRIGGER + 1):gsub("^[%s,:!]+", "")
       if text ~= "" then enqueue(user, text, true) end
     end

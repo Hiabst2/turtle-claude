@@ -416,7 +416,10 @@ function M.orehunt(opts, say)
 
   -- Scan-Punkte liegen auf einem Raster mit 2 x radius Abstand, damit sich die Scans nicht ueberschneiden.
   -- Als naechstes kommt immer der ungescannte Punkt in der Zone, der am naechsten liegt.
+  -- scanned: fertig abgebaut (erst danach eingetragen, sonst ginge ein Bereich nach einem Neustart verloren)
+  -- unreachable: kein erlaubter Weg dorthin; zaehlt nicht als erledigt
   opts.scanned = opts.scanned or {}
+  opts.unreachable = opts.unreachable or {}
   local spacing = 2 * radius
   local function nextCenter()
     local p, best, bestD = nav.pos(), nil, nil
@@ -424,7 +427,7 @@ function M.orehunt(opts, say)
       for j = -rounds, rounds do
         local c = { x = ctx.start.x + i * spacing, y = ctx.start.y, z = ctx.start.z + j * spacing }
         local k = path.key(c.x, c.y, c.z)
-        if not opts.scanned[k] and zones.check(c, nil, nav.hasGps()) then
+        if not opts.scanned[k] and not opts.unreachable[k] and zones.check(c, nil, nav.hasGps()) then
           -- naeher an der Turtle zuerst, bei Gleichstand naeher am Start
           local d = nav.dist(p, c) * 1000 + nav.dist(ctx.start, c)
           if not bestD or d < bestD then best, bestD = c, d end
@@ -442,15 +445,18 @@ function M.orehunt(opts, say)
       ctx.say("Keine ungescannten Bereiche mehr in der Mining-Zone.")
       break
     end
-    opts.scanned[path.key(center.x, center.y, center.z)] = true
+    local k = path.key(center.x, center.y, center.z)
     maintain(ctx)
     if step(path.go(map, center, onOre)) then
-      done = done + 1
       local n = scanArea(map, radius)
-      ctx.say(("Scan %d/%d: %d neue Erzbloecke."):format(done, rounds, n))
+      ctx.say(("Scan %d/%d: %d neue Erzbloecke."):format(done + 1, rounds, n))
       repeat
         maintain(ctx)
-      until not path.nextOre(map, onOre)
+      until not path.nextOre(map, onOre, center, radius)
+      opts.scanned[k] = true
+      done = done + 1
+    else
+      opts.unreachable[k] = true
     end
     saveJob("orehunt", opts)
   end

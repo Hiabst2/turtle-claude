@@ -14,7 +14,10 @@ end
 local passed, failed = 0, 0
 local function test(name, fn)
   fresh()
-  local ok, err = pcall(fn)
+  -- in einer Koroutine, weil CC-Code zwischendurch os.pullEvent aufruft (z.B. die Wegsuche zum Durchatmen)
+  local co = coroutine.create(fn)
+  local ok, err = coroutine.resume(co)
+  while ok and coroutine.status(co) == "suspended" do ok, err = coroutine.resume(co) end
   if ok then passed = passed + 1 say("ok    " .. name)
   else failed = failed + 1 say("FAIL  " .. name .. "\n      " .. tostring(err)) end
 end
@@ -139,6 +142,136 @@ test("B3: ohne Besitzer darf per Chat niemand steuern", function()
   runClaude({ { "chat", "Hiabstla", "hiabst, setz den heimplatz" } }, { toolUse("set_home"), text("ok") }, nil)
   local res = lastMsg(cc.sent[2]).content[1].content
   assert(res:find("kein Besitzer"), res)
+end)
+
+-- Block 2 ---------------------------------------------------------------
+test("B6: lange Chat-Antworten am Leerzeichen und nie mitten in UTF-8 teilen", function()
+  local long = ("Grüße aus der Mine, ich habe viel Eisenerz gefunden. "):rep(8)
+  runClaude({ { "chat", "Hiabstla", "hiabst, erzaehl" } }, { text(long) }, "Hiabstla")
+  assert(#cc.chat >= 2, "sollte geteilt werden")
+  for _, part in ipairs(cc.chat) do
+    assert(#part <= 240, "zu lang: " .. #part)
+    local first = part:byte(1)
+    assert(not (first >= 0x80 and first <= 0xBF), "Teil beginnt mitten in einem UTF-8-Zeichen")
+    assert(not part:find("^%s"), "Teil beginnt mit Leerzeichen")
+  end
+  eq(table.concat(cc.chat, " "), (long:gsub("%s+$", "")), "Text unvollstaendig")
+end)
+
+test("B6: ohne Leerzeichen wird trotzdem nicht in UTF-8 geschnitten", function()
+  local long = ("äöü"):rep(100)
+  runClaude({ { "chat", "Hiabstla", "hiabst, x" } }, { text(long) }, "Hiabstla")
+  for _, part in ipairs(cc.chat) do
+    local first = part:byte(1)
+    assert(not (first >= 0x80 and first <= 0xBF), "Teil beginnt mitten in einem UTF-8-Zeichen")
+  end
+  eq(table.concat(cc.chat), long)
+end)
+
+test("B7: bei 529 und Timeout wird wiederholt", function()
+  cc.posts = 0
+  runClaude({ { "chat", "Hiabstla", "hiabst, hallo" } }, { { fail = 529 }, { fail = "timeout" }, text("da") }, "Hiabstla")
+  eq(cc.posts, 3, "Versuche")
+  eq(cc.chat[1], "da")
+end)
+
+test("B7: bei 400 wird nicht wiederholt", function()
+  cc.posts = 0
+  runClaude({ { "chat", "Hiabstla", "hiabst, hallo" } }, { { fail = 400 }, text("nie") }, "Hiabstla")
+  eq(cc.posts, 1, "Versuche")
+  assert(cc.chat[1]:find("API%-Fehler"), cc.chat[1])
+end)
+
+test("B10: Hiabstxyz spricht die Turtle nicht an, Hiabst? schon", function()
+  runClaude({ { "chat", "Hiabstla", "hiabstxyz, status" }, { "chat", "Hiabstla", "Hiabst? status" } },
+    { text("ja?") }, "Hiabstla")
+  eq(#cc.sent, 1, "nur die zweite Nachricht")
+  assert(lastMsg(cc.sent[1]).content:find("status"))
+end)
+
+test("B8: update tauscht nur aus, wenn alles geladen wurde", function()
+  cc.writeFile("/nav.lua", "alt")
+  cc.web = { ["files.txt"] = "nav.lua\nfehlt.lua\n", ["nav.lua"] = "neu" }
+  dofile("update.lua")
+  eq(cc.readFile("/nav.lua"), "alt", "bei abgebrochenem Download darf nichts ersetzt werden")
+  eq(fs.exists("/.update"), false, "Temp-Verzeichnis aufgeraeumt")
+  cc.web["fehlt.lua"] = "jetzt da"
+  dofile("update.lua")
+  eq(cc.readFile("/nav.lua"), "neu")
+  eq(cc.readFile("/fehlt.lua"), "jetzt da")
+end)
+
+test("B8: Kanal waehlt den Branch", function()
+  local urls = {}
+  local get = http.get
+  http.get = function(url) urls[#urls + 1] = url return nil, "404" end
+  settings.values["claude.channel"] = "beta"
+  dofile("update.lua")
+  http.get = get
+  assert(urls[1]:find("/turtle%-claude/beta/files.txt"), urls[1])
+end)
+
+test("B9: nextOre sucht nur rund um den aktuellen Scan", function()
+  local store = require("store")
+  store.save("/.nav", { pos = { x = 0, y = 0, z = 0, f = 0 }, home = { x = 0, y = 0, z = 0, f = 0 }, gps = true })
+  require("zones").add("test", -100, -100, -100, 100, 100, 100)
+  local path = require("path")
+  local map = path.newMap()
+  path.markAir(map, { x = 0, y = 0, z = 0 })
+  path.set(map, 50, 0, 0, "ore", "minecraft:iron_ore") -- weit weg
+  eq(path.nextOre(map, nil, { x = 0, y = 0, z = 0 }, 8), false, "weit entferntes Erz gehoert nicht zu diesem Scan")
+  path.set(map, 3, 0, 0, "ore", "minecraft:iron_ore")
+  local found
+  eq(path.nextOre(map, function(n) found = n end, { x = 0, y = 0, z = 0 }, 8), true)
+  eq(found, "minecraft:iron_ore")
+  eq(require("nav").pos().x, 3)
+end)
+
+local function orehuntSetup(zoneList)
+  local store = require("store")
+  store.save("/.nav", { pos = { x = 0, y = 0, z = 0, f = 3 }, home = { x = 0, y = 0, z = 0, f = 3 }, gps = true })
+  local zones = require("zones")
+  for i, z in ipairs(zoneList) do zones.add("z" .. i, table.unpack(z)) end
+  local scans = 0
+  local scanner = { scan = function() scans = scans + 1 return {} end }
+  turtle.getItemDetail = function(slot)
+    if slot == 1 then return { name = "advancedperipherals:geo_scanner", count = 1 } end
+  end
+  turtle.getEquippedRight = function() return nil end
+  local wrap = peripheral.wrap
+  peripheral.wrap = function(side) if side == "left" then return scanner end end
+  return function()
+    peripheral.wrap = wrap
+    turtle.getItemDetail = function() return nil end
+    return scans
+  end
+end
+
+test("B5: Bereich zaehlt erst nach dem Scan als erledigt", function()
+  local done = orehuntSetup({ { -1, -1, -1, 20, 1, 1 } })
+  local mine = require("mine")
+  local opts = { rounds = 2, radius = 8, home = false }
+  local res = mine.run(mine.orehunt, opts, function() end)
+  local scans = done()
+  eq(scans, 2, "Scans")
+  local n = 0
+  for _ in pairs(opts.scanned) do n = n + 1 end
+  eq(n, 2, "erledigte Bereiche")
+  assert(res:find("^Fertig"), res)
+end)
+
+test("B5: unerreichbarer Bereich zaehlt nicht als erledigt", function()
+  -- zwei Zonen mit Luecke dazwischen: zum Bereich bei x=16 gibt es keinen erlaubten Weg
+  local done = orehuntSetup({ { -1, -1, -1, 5, 1, 1 }, { 14, -1, -1, 20, 1, 1 } })
+  local mine = require("mine")
+  local opts = { rounds = 2, radius = 8, home = false }
+  mine.run(mine.orehunt, opts, function() end)
+  local scans = done()
+  eq(scans, 1, "nur der erreichbare Bereich wird gescannt")
+  local n = 0
+  for _ in pairs(opts.scanned) do n = n + 1 end
+  eq(n, 1, "erledigt")
+  eq(opts.unreachable["16,0,0"], true, "als unerreichbar gemerkt")
 end)
 
 say(("\n%d ok, %d fehlgeschlagen"):format(passed, failed))

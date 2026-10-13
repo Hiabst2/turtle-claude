@@ -44,26 +44,36 @@ Jeder Abbau wird in `nav.lua` geprüft, egal ob von Claude, Stripmine oder Heimw
 - ohne Zone gräbt die Turtle gar nicht
 - Truhen, Kolonie-Blöcke, Computer, Türen, Glas, Create-Maschinen usw. nie
 
-Zonen ändern: im Terminal mit `zone`, per Chat nur der Besitzer (`set claude.owner <Name>`).
+Per Chat darf nur der Besitzer (`set claude.owner <Name>`) die Turtle steuern, Fragen darf jeder stellen.
+Zonen und Höhenlimit ändert sie per Chat erst, wenn der Besitzer mit „ja“ bestätigt. Im Terminal mit `zone`.
 
 `startup.lua` startet `claude` nach jedem Neustart und setzt unterbrochene Aufträge fort.
+Zustandsdateien (`/.nav`, `/.zones`, `/.job`) werden mit Sicherung gespeichert; ist eine kaputt,
+meldet die Turtle das, statt still neu anzufangen.
 
-## Heimplatz-Aufbau
+## Heimplatz-Aufbau (`sethome`)
 
+- **unter** der Turtle: Ausrüstungskiste (Toolbox) mit Geo Scanner, Player Detector, Ender Modem, Zwischenkiste
+- **neben** der Turtle: Colony Integrator (optional)
 - **hinter** der Turtle: Truhe zum Ausladen (nur wenn es keinen eigenen Lagerplatz gibt)
+- **über** dem Heimplatz frei bis zur Reisehöhe (Standard Y 110, `set claude.travel_y <y>`)
+
+Die Chat Box bleibt immer angelegt. Für Scanner, Detector und Modem wird kurz die Spitzhacke getauscht.
 
 ## Lagerplatz (optional, `setdepot`)
 
 Eigener Platz zum Ausladen und Tanken, z.B. am Tom's-Storage-Lager:
 
-- **hinter** der Turtle: *Inventory Cable Connector* – alles wird reingeworfen, auch Kohle
+- **hinter** der Turtle: *Inventory Cable Connector* – alles wird reingeworfen (eigene Kohle bis auf einen Stapel)
 - **unter, rechts oder links**: *Filtered Cable Connector* mit Filter Kohle – davon wird nachgetankt (bis 5000, `set claude.fuel_target`)
-- darüber frei bis zur Reisehöhe
-- **unter** der Turtle: Ausrüstungskiste mit Geo Scanner, Player Detector, Ender Modem
-- **neben** der Turtle: Colony Integrator (optional)
-- **über** dem Heimplatz frei bis zur Reisehöhe (Standard Y 110, `set claude.travel_y <y>`)
+- **über** dem Lagerplatz frei bis zur Reisehöhe
 
-Die Chat Box bleibt immer angelegt. Für Scanner, Detector und Modem wird kurz die Spitzhacke getauscht.
+## Kanäle und Tests
+
+`set claude.channel <branch>` wählt den Git-Branch, von dem `update` lädt (Standard `main`).
+`update` lädt erst alles herunter und tauscht nur bei vollständigem Erfolg aus.
+
+Tests ohne Minecraft (braucht Lua 5.2): `sh tests/test.sh`
 
 ## Zwischenkiste
 

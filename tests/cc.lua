@@ -10,8 +10,9 @@ local function real(path) return root .. "/" .. path:gsub("^/", "") end
 
 fs = {
   exists = function(p) local f = io.open(real(p), "r") if f then f:close() return true end return false end,
-  isDir = function() return false end,
-  delete = function(p) os.remove(real(p)) end,
+  isDir = function(p) return os.execute("test -d '" .. real(p) .. "'") == true end,
+  makeDir = function(p) os.execute("mkdir -p '" .. real(p) .. "'") end,
+  delete = function(p) os.execute("rm -rf '" .. real(p) .. "'") end,
   move = function(a, b) assert(os.rename(real(a), real(b))) end,
   open = function(p, mode)
     local f = io.open(real(p), mode == "w" and "w" or "r")
@@ -103,10 +104,28 @@ parallel = {
   end,
 }
 
+M.web = {} -- Dateien fuer http.get: Teil der URL -> Inhalt
 http = {
+  get = function(url)
+    local path = url:match("/main/([^?]+)") or url:match("/[%w_-]+/([^/?]+)%?")
+    local body = M.web[path]
+    if not body then return nil, "404" end
+    return { readAll = function() return body end, close = function() end }
+  end,
+  -- Eine Antwort { fail = 529 } simuliert einen HTTP-Fehler, { fail = "timeout" } einen Timeout
   post = function()
+    M.posts = (M.posts or 0) + 1
     local resp = table.remove(M.responses, 1)
     assert(resp, "keine vorbereitete API-Antwort mehr")
+    if resp.fail == "timeout" then return nil, "Timed out" end
+    if resp.fail then
+      local code = resp.fail
+      return nil, "HTTP " .. code, {
+        getResponseCode = function() return code end,
+        readAll = function() return "fehler " .. code end,
+        close = function() end,
+      }
+    end
     return { readAll = function() return resp end, close = function() end }
   end,
 }

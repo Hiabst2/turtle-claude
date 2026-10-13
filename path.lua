@@ -127,8 +127,10 @@ local NEIGHBORS = { { 1, 0, 0 }, { -1, 0, 0 }, { 0, 0, 1 }, { 0, 0, -1 }, { 0, 1
 
 -- Sucht den billigsten Weg von from zu einer Zelle, fuer die isGoal(x, y, z, k) true ist.
 -- h(x, y, z) = Schaetzung der Restkosten (0 = Dijkstra). Gibt die Liste der Schritte zurueck.
-local function search(map, from, isGoal, h, pad, extra)
+-- area = { min, max } begrenzt die Suche, sonst gilt der ganze bekannte Bereich der Karte.
+local function search(map, from, isGoal, h, pad, extra, area)
   local lo, hi = map.min or from, map.max or from
+  if area then lo, hi = area.min, area.max end
   local bx1, by1, bz1 = math.min(lo.x, from.x), math.min(lo.y, from.y), math.min(lo.z, from.z)
   local bx2, by2, bz2 = math.max(hi.x, from.x), math.max(hi.y, from.y), math.max(hi.z, from.z)
   if extra then
@@ -218,10 +220,21 @@ function M.go(map, target, onOre)
 end
 
 -- Zum Erz, das am wenigsten Stein kostet. Gibt false zurueck, wenn keins mehr erreichbar ist.
-function M.nextOre(map, onOre)
+-- Mit center/radius wird nur rund um den aktuellen Scan gesucht, sonst wird es nach vielen
+-- Bereichen auf CC langsam.
+function M.nextOre(map, onOre, center, radius)
   local p = nav.pos()
-  local steps = search(map, p, function(_, _, _, k) return map.ores[k] ~= nil end,
-    function() return 0 end, 1)
+  local area
+  if center then
+    local r = (radius or 8) + 4
+    area = { min = { x = center.x - r, y = center.y - r, z = center.z - r },
+      max = { x = center.x + r, y = center.y + r, z = center.z + r } }
+  end
+  local steps = search(map, p, function(x, y, z, k)
+    if not map.ores[k] then return false end
+    return not area or (x >= area.min.x and x <= area.max.x and y >= area.min.y and y <= area.max.y
+      and z >= area.min.z and z <= area.max.z)
+  end, function() return 0 end, 1, nil, area)
   if not steps then return false end
   local ok, err = follow(map, steps, onOre)
   if not ok and not tostring(err):find("Darf hier nicht graben", 1, true) then error(err, 0) end
