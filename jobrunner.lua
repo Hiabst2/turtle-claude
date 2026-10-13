@@ -21,12 +21,14 @@ local M = {}
 M.IDLE_INTERVAL = settings.get("worker.idle_interval", 15) -- Sekunden zwischen zwei Leerlauf-Syncs
 M.MIN_FUEL = settings.get("worker.min_fuel", 1000) -- darunter faehrt der Worker im Leerlauf tanken
 M.REFUEL_RETRY = 600 -- Sekunden bis zum naechsten Tankversuch, wenn es nicht geklappt hat
+M.GEAR = { "modem", "geo_scanner", "minecraft:chest" } -- das soll ein Worker immer dabeihaben
+M.GEAR_RETRY = 600 -- Sekunden bis zum naechsten Versuch, fehlende Ausruestung zu holen
 M.say = print
 M.now = function() return sync.now() end
 
 local FILE = "/.worker"
 local state = store.load(FILE) or {}
-local lastIdle, lastRefuel
+local lastIdle, lastRefuel, lastGear
 
 local function save() store.save(FILE, state) end
 
@@ -127,7 +129,22 @@ local function copyParams(p)
   for k, v in pairs(p or {}) do
     if k ~= "start" then opts[k] = v end
   end
+  opts.keep_gear = true -- Worker legen ihre Ausruestung nie in die Toolbox
   return opts
+end
+
+-- fehlende Ausruestung (Modem, Geo Scanner, Kiste) aus der Toolbox unter dem Heimplatz holen
+local function refillGear()
+  local missing = {}
+  for _, item in ipairs(M.GEAR) do
+    if not gear.findSlot(item) then missing[#missing + 1] = item end
+  end
+  if #missing == 0 then return nil end
+  local p, h = nav.pos(), nav.home()
+  if p.x ~= h.x or p.y ~= h.y or p.z ~= h.z then return nil end -- die Toolbox gibt es nur daheim
+  local ok, text = gear.take(missing)
+  M.say(ok and ("Ausruestung geholt: " .. table.concat(missing, ", ")) or tostring(text))
+  return ok
 end
 
 -- fuehrt den Auftrag aus und liefert den Ergebnistext ("Fertig. ..." oder "Gestoppt: ...")
@@ -192,6 +209,12 @@ function M.step()
     return success and "fertig" or "fehlgeschlagen"
   end
   local now = M.now()
+  -- fehlt etwas von der Ausruestung, daheim aus der Toolbox holen
+  if not state.paused and (not lastGear or now - lastGear >= M.GEAR_RETRY * 1000) then
+    lastGear = now
+    local ok, refilled = pcall(refillGear)
+    if ok and refilled then return "ausgeruestet" end
+  end
   -- zu wenig Fuel fuer Auftraege: selbst zum Lager fahren und tanken (dort wird auch ausgeladen)
   if not state.paused and nav.fuel() < M.MIN_FUEL
     and (not lastRefuel or now - lastRefuel >= M.REFUEL_RETRY * 1000) then

@@ -241,9 +241,12 @@ local function finish(ctx, opts, goHome)
     local ok, info = nav.unload()
     must(nav.goHome())
     lines[#lines + 1] = ok and ("Ausgeladen: " .. info .. " Items") or ("Nicht ausgeladen: " .. info)
-    -- Kiste und Ausruestung zurueck in die Toolbox unter dem Heimplatz
-    local stored = gear.store()
-    if stored then lines[#lines + 1] = "Ausruestung und Kiste in die Toolbox gelegt." end
+    -- Kiste und Ausruestung zurueck in die Toolbox unter dem Heimplatz - nicht bei Workern (keep_gear):
+    -- ohne Modem koennten sie nicht mehr funken und bekaemen nie wieder einen Auftrag
+    if not opts.keep_gear then
+      local stored = gear.store()
+      if stored then lines[#lines + 1] = "Ausruestung und Kiste in die Toolbox gelegt." end
+    end
   end
   return lines
 end

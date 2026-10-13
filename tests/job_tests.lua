@@ -23,10 +23,11 @@ local function world(o)
   end
   -- ein Worker, der das Protokoll spricht (ohne echte Turtle)
   function w.worker(id, gear)
+    gear = gear or { chest = true }
     local node = net.node(id)
     local wk = { node = node, got = {} }
     function wk.idle()
-      node:send("job", "worker.idle", { role = "miner", gear = gear or {}, pos = { x = 0, y = 0, z = 0 }, fuel = 5000 })
+      node:send("job", "worker.idle", { role = "miner", gear = gear, pos = { x = 0, y = 0, z = 0 }, fuel = 5000 })
       node:flush()
       w.step()
       wk.read()
@@ -56,10 +57,13 @@ test("Jobs: Zuteilung nach Ausruestung, dann accept, progress, complete", functi
   local w = world()
   local job = w.jobs:create({ type = "orehunt", area = area(0) }, "test")
   eq(job.state, "created")
-  local plain = w.worker(5, {})
+  local plain = w.worker(5, { chest = true })
   plain.idle()
   eq(plain.last("job.assign"), nil, "ohne Geo Scanner keine Erzjagd")
-  local scout = w.worker(6, { geo_scanner = true })
+  local noChest = w.worker(8, { geo_scanner = true })
+  noChest.idle()
+  eq(noChest.last("job.assign"), nil, "ohne Kiste keine Erzjagd")
+  local scout = w.worker(6, { geo_scanner = true, chest = true })
   scout.idle()
   local a = scout.last("job.assign")
   assert(a, "keine Zuteilung")
@@ -150,7 +154,7 @@ end)
 test("Jobs: Abbruch erreicht den Worker, Zustand ueberlebt Neustart", function()
   local w = world()
   local job = w.jobs:create({ type = "orehunt", params = { rounds = 2 } }, "t")
-  local a = w.worker(5, { geo_scanner = true })
+  local a = w.worker(5, { geo_scanner = true, chest = true })
   a.idle()
   local asg = a.last("job.assign")
   a.say("job.accept", { id = asg.id, epoch = asg.epoch })
@@ -193,6 +197,8 @@ local function realTurtle(w)
   end
   turtle.getItemDetail = function(slot)
     if slot == 2 then return { name = "computercraft:wireless_modem_advanced", count = 1 } end
+    if slot == 3 then return { name = "advancedperipherals:geo_scanner", count = 1 } end
+    if slot == 4 then return { name = "minecraft:chest", count = 1 } end
   end
   turtle.getEquippedRight = function() return nil end
   turtle.getFuelLevel = function() return 20000 end
@@ -225,7 +231,8 @@ test("Worker: echte Turtle holt sich einen Auftrag und arbeitet ihn ab", functio
   assert(j.result:find("^Fertig"), j.result)
   eq(j.worker, 7, "Turtle-ID (os.getComputerID der Attrappe, siehe tests/cc.lua)")
   local p = require("nav").pos()
-  eq(p.x, 710) eq(p.z, 613, "Tunnel 3 lang ab Startpunkt")
+  -- am Ende zurueck am Startpunkt: dort hat sie die Zwischenkiste wieder eingepackt
+  eq(p.x, 710) eq(p.z, 610, "zurueck bei der Zwischenkiste")
   eq(runner.state().job, nil, "Worker wieder frei")
 end)
 
@@ -286,13 +293,13 @@ test("Jobs: zu wenig Fuel -> Auftrag geht an einen anderen Worker", function()
   local w = world()
   local job = w.jobs:create({ type = "tunnel", params = { length = 50, start = { x = 300, y = 40, z = 0 } } }, "t")
   local poor = w.worker(5)
-  poor.node:send("job", "worker.idle", { role = "miner", gear = {}, pos = { x = 0, y = 40, z = 0 }, fuel = 300 })
+  poor.node:send("job", "worker.idle", { role = "miner", gear = { chest = true }, pos = { x = 0, y = 40, z = 0 }, fuel = 300 })
   poor.node:flush()
   w.step()
   poor.read()
   eq(poor.last("job.assign"), nil, "300 Fuel reichen nicht")
   local rich = w.worker(6)
-  rich.node:send("job", "worker.idle", { role = "miner", gear = {}, pos = { x = 0, y = 40, z = 0 }, fuel = 20000 })
+  rich.node:send("job", "worker.idle", { role = "miner", gear = { chest = true }, pos = { x = 0, y = 40, z = 0 }, fuel = 20000 })
   rich.node:flush()
   w.step()
   rich.read()
@@ -371,4 +378,37 @@ test("Worker: zu wenig Fuel im Leerlauf -> faehrt selbst tanken, aber nicht daue
   eq(r1, "getankt") eq(visited, true, "war am Lager")
   eq(nav.pos().x, 705, "wieder daheim")
   eq(r2, "leerlauf", "nicht sofort nochmal")
+end)
+
+test("Worker: nach einem Auftrag mit Heimfahrt bleibt die Ausruestung dabei (kein Modem in der Toolbox)", function()
+  local w = world()
+  w.jobs:create({ type = "tunnel", params = { length = 2, width = 1, height = 1, home = true,
+    start = { x = 710, y = 40, z = 610, f = 0 } } }, "test")
+  local runner, done = realTurtle(w)
+  local gear = require("gear")
+  local stored = 0
+  gear.store = function() stored = stored + 1 return true, "" end
+  for _ = 1, 8 do
+    sim.advance(16000)
+    runner.step()
+    if w.jobs.state.jobs.J1.state == "complete" then break end
+  end
+  done()
+  eq(w.jobs.state.jobs.J1.state, "complete")
+  eq(stored, 0, "Worker darf seine Ausruestung nicht in die Toolbox legen")
+end)
+
+test("Worker: fehlende Ausruestung holt er sich daheim aus der Toolbox", function()
+  local w = world()
+  local runner, done = realTurtle(w)
+  turtle.getItemDetail = function(slot) -- nur noch das Modem dabei
+    if slot == 2 then return { name = "computercraft:wireless_modem_advanced", count = 1 } end
+  end
+  local gear = require("gear")
+  local asked
+  gear.take = function(items) asked = items return true, "ok" end
+  local r = runner.step() -- steht daheim (Heimplatz = Startposition)
+  done()
+  eq(r, "ausgeruestet")
+  eq(table.concat(asked, ","), "geo_scanner,minecraft:chest")
 end)
