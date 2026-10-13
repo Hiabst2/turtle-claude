@@ -431,3 +431,36 @@ test("Worker: fehlt Ausruestung und er ist nicht daheim, fliegt er erst heim zur
   eq(r, "ausgeruestet")
   eq(takenAt, "730 40 640", "erst daheim aus der Toolbox genommen")
 end)
+
+test("Worker: fest ausgeruestetes Modem zaehlt als vorhanden", function()
+  local w = world()
+  local runner, done = realTurtle(w)
+  turtle.getItemDetail = function(slot) -- Modem NICHT im Inventar, nur Scanner und Kiste
+    if slot == 3 then return { name = "advancedperipherals:geo_scanner", count = 1 } end
+    if slot == 4 then return { name = "minecraft:chest", count = 1 } end
+  end
+  local getType, call = peripheral.getType, peripheral.call
+  peripheral.getType = function(side) if side == "right" then return "modem" end end
+  peripheral.call = function(side, method) if side == "right" and method == "isWireless" then return true end end
+  local gear = require("gear")
+  local asked
+  gear.take = function(items) asked = items return true end
+  local r = runner.step()
+  local info = runner.gearInfo()
+  peripheral.getType, peripheral.call = getType, call
+  done()
+  eq(asked, nil, "nichts aus der Toolbox holen")
+  eq(info.modem, true)
+  eq(r, "leerlauf")
+end)
+
+test("Bootstrap: 'bootstrap miner' ohne Rueckfragen schaltet TurtleMQ ein", function()
+  cc.web = {
+    ["main/update.lua"] = assert(io.open("update.lua")):read("*a"),
+    ["api:main"] = { sha = "abc1234def" },
+    ["abc1234def/manifests/miner.txt"] = "nav.lua\n",
+    ["abc1234def/nav.lua"] = "n",
+  }
+  loadfile("bootstrap.lua")("miner")
+  eq(settings.values["mq.enabled"], true)
+end)

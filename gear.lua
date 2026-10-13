@@ -26,6 +26,19 @@ function M.findSlot(pattern)
   end
 end
 
+-- Wireless/Ender Modem fest ausgeruestet?
+function M.wirelessEquipped()
+  for _, side in ipairs({ "left", "right" }) do
+    if peripheral.getType(side) == "modem" and peripheral.call(side, "isWireless") then return side end
+  end
+end
+
+-- Hat die Turtle das Teil? Im Inventar oder (beim Modem) fest ausgeruestet
+function M.has(pattern)
+  if M.findSlot(pattern) then return true end
+  return pattern == "modem" and M.wirelessEquipped() ~= nil
+end
+
 -- Seite fuer den Tausch: nie die Chat Box
 local function toolSide()
   if peripheral.getType("left") == "chatBox" then return "right" end

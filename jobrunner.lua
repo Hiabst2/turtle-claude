@@ -36,10 +36,10 @@ function M.state() return state end
 
 function M.gearInfo()
   return {
-    geo_scanner = gear.findSlot("geo_scanner") ~= nil,
-    player_detector = gear.findSlot("player_detector") ~= nil,
-    modem = gear.findSlot("modem") ~= nil,
-    chest = gear.findSlot("minecraft:chest") ~= nil,
+    geo_scanner = gear.has("geo_scanner"),
+    player_detector = gear.has("player_detector"),
+    modem = gear.has("modem"),
+    chest = gear.has("minecraft:chest"),
   }
 end
 
@@ -137,7 +137,7 @@ end
 local function refillGear()
   local missing = {}
   for _, item in ipairs(M.GEAR) do
-    if not gear.findSlot(item) then missing[#missing + 1] = item end
+    if not gear.has(item) then missing[#missing + 1] = item end -- Modem darf auch fest ausgeruestet sein
   end
   if #missing == 0 then return nil end
   local p, h = nav.pos(), nav.home()

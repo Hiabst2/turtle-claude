@@ -35,6 +35,7 @@ if r.turtle and not turtle then printError("Die Rolle " .. role .. " geht nur au
 local channel = args[2] or (args[1] and "main") or ask("Kanal (Git-Branch)", settings.get("claude.channel", "main"))
 settings.set("claude.role", role)
 settings.set("claude.channel", channel)
+if role == "miner" then settings.set("mq.enabled", true) end -- der Worker-Dienst braucht TurtleMQ
 
 -- Rollenspezifische Einstellungen nur abfragen, wenn interaktiv eingerichtet wird
 if not args[1] then
@@ -56,7 +57,6 @@ if not args[1] then
   elseif role == "central" then
     if not os.getComputerLabel() then os.setComputerLabel("Zentrale") end
   elseif role == "miner" then
-    settings.set("mq.enabled", true) -- der Worker-Dienst braucht TurtleMQ
     os.setComputerLabel(ask("Name der Turtle", os.getComputerLabel() or ("Miner" .. os.getComputerID())))
   end
   -- TurtleMQ-Geheimnis fuer die Signatur, auf allen Geraeten gleich
