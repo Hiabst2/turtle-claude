@@ -85,17 +85,30 @@ function Service:create(p, by)
   return job
 end
 
-function Service:canDo(job, worker)
-  if (worker.role or "miner") ~= job.role then return false end
+-- Warum kann dieser Worker den Auftrag nicht uebernehmen? nil = er kann.
+-- Zweiter Rueckgabewert: benoetigtes Fuel, wenn es (nur) am Fuel scheitert.
+function Service:explain(job, worker)
+  if (worker.role or "miner") ~= job.role then
+    return ("braucht Rolle %s (Turtle hat %s)"):format(job.role, tostring(worker.role))
+  end
   local gear = type(worker.gear) == "table" and worker.gear or {}
+  local missing = {}
   for _, need in ipairs(job.requires or {}) do
-    if not gear[need] then return false end
+    if not gear[need] then missing[#missing + 1] = need end
   end
+  if #missing > 0 then return "fehlt " .. table.concat(missing, ", ") end
   -- genug Fuel fuer Anfahrt, Arbeit und den Weg zum Lager? (gleiche Formel wie Turtle und Path-Dienst)
-  if tonumber(worker.fuel) and tonumber(worker.fuel) < cost.need(job, worker, tonumber(worker.travel_y)) then
-    return false
+  local need = cost.need(job, worker, tonumber(worker.travel_y))
+  if tonumber(worker.fuel) and tonumber(worker.fuel) < need then
+    return ("zu wenig Fuel (hat %d, braucht %d)"):format(worker.fuel, need), need
   end
-  return true
+  if not self:areaFree(job) then return "Bereich gerade von einem anderen Auftrag belegt" end
+  return nil
+end
+
+function Service:canDo(job, worker)
+  local reason = self:explain(job, worker)
+  return reason == nil or reason == "Bereich gerade von einem anderen Auftrag belegt"
 end
 
 function Service:areaFree(job)
@@ -205,7 +218,30 @@ function Service:handle(msg)
     end
     if not pending then
       local job = self:pick(p)
-      if job then self:assign(job, msg.source) end
+      if job then
+        self:assign(job, msg.source)
+      else
+        -- nichts Passendes: dem Worker sagen, warum (und wie viel Fuel ihm fehlt), damit er handeln kann
+        local reasons, needFuel = {}, nil
+        for _, j in pairs(self.state.jobs) do
+          if j.state == "created" then
+            local why, need = self:explain(j, p)
+            if why then
+              reasons[#reasons + 1] = j.id .. ": " .. why
+              if need and (not needFuel or need < needFuel) then needFuel = need end
+            end
+          end
+        end
+        if #reasons > 0 then
+          table.sort(reasons)
+          local text = table.concat(reasons, "; ")
+          self.host.send(msg.source, "job.none", { reasons = text, need_fuel = needFuel }, { ttl = 120 })
+          if self.lastWhy ~= text then
+            self.lastWhy = text
+            self:note(("#%s bekommt nichts: %s"):format(tostring(msg.source), text))
+          end
+        end
+      end
     end
 
   elseif topic == "job.accept" or topic == "job.progress" or topic == "job.complete" or topic == "job.fail" then

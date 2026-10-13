@@ -464,3 +464,35 @@ test("Bootstrap: 'bootstrap miner' ohne Rueckfragen schaltet TurtleMQ ein", func
   loadfile("bootstrap.lua")("miner")
   eq(settings.values["mq.enabled"], true)
 end)
+
+test("Jobs: Worker erfaehrt, warum er nichts bekommt", function()
+  local w = world()
+  w.jobs:create({ type = "orehunt" }, "t")
+  local a = w.worker(5, { chest = true })
+  a.idle()
+  local none = a.last("job.none")
+  assert(none and none.reasons:find("J1: fehlt geo_scanner"), none and none.reasons)
+  assert(w.jobs.log[1]:find("bekommt nichts"), w.jobs.log[1])
+end)
+
+test("Worker: Zentrale meldet zu wenig Fuel -> faehrt so viel tanken, wie der Auftrag braucht", function()
+  local w = world()
+  local job = w.jobs:create({ type = "tunnel", params = { length = 300, width = 3, height = 3,
+    start = { x = 710, y = 40, z = 610, f = 0 } } }, "t")
+  local runner, done = realTurtle(w)
+  turtle.getFuelLevel = function() return 1500 end -- ueber der Mindestmenge, aber zu wenig fuer den Auftrag
+  local nav = require("nav")
+  local targetWhileRefuel
+  nav.unload = function() targetWhileRefuel = nav.FUEL_TARGET return true, 0 end
+  local results = {}
+  for _ = 1, 4 do
+    sim.advance(16000)
+    results[#results + 1] = runner.step()
+    if targetWhileRefuel then break end
+  end
+  done()
+  local need = require("cost").need(w.jobs.state.jobs[job.id], { pos = { x = 705, y = 40, z = 605 },
+    depot = { x = 705, y = 40, z = 605 } }, 110)
+  assert(targetWhileRefuel, "ist nicht tanken gefahren: " .. table.concat(results, ","))
+  assert(targetWhileRefuel >= need, ("tankt nur bis %d, braucht %d"):format(targetWhileRefuel, need))
+end)

@@ -29,6 +29,7 @@ M.now = function() return sync.now() end
 local FILE = "/.worker"
 local state = store.load(FILE) or {}
 local lastIdle, lastRefuel, lastGear
+local why, fuelWanted -- letzter Grund von der Zentrale, warum es keinen Auftrag gibt
 
 local function save() store.save(FILE, state) end
 
@@ -91,6 +92,9 @@ local function onMessage(msg)
   local p = type(msg.payload) == "table" and msg.payload or {}
   if msg.topic == "map.data" then
     applyMap(p)
+  elseif msg.topic == "job.none" then
+    why = p.reasons
+    fuelWanted = tonumber(p.need_fuel)
   elseif msg.topic == "job.assign" then
     local job = state.job
     if job then
@@ -103,6 +107,7 @@ local function onMessage(msg)
       end
       return
     end
+    why, fuelWanted = nil, nil
     state.job = { id = p.id, epoch = p.epoch, type = p.type, params = p.params or {}, area = p.area }
     save()
     M.say(("Neuer Auftrag %s: %s"):format(tostring(p.id), tostring(p.type)))
@@ -225,17 +230,23 @@ function M.step()
     local ok, refilled = pcall(refillGear)
     if ok and refilled then return "ausgeruestet" end
   end
-  -- zu wenig Fuel fuer Auftraege: selbst zum Lager fahren und tanken (dort wird auch ausgeladen)
-  if not state.paused and nav.fuel() < M.MIN_FUEL
+  -- zu wenig Fuel: unter der Mindestmenge, oder die Zentrale sagt, fuer einen Auftrag reicht es nicht.
+  -- Dann selbst zum Lager fahren und so viel tanken, wie gebraucht wird (dort wird auch ausgeladen).
+  local wanted = math.max(M.MIN_FUEL, fuelWanted or 0)
+  if not state.paused and nav.fuel() < wanted
     and (not lastRefuel or now - lastRefuel >= M.REFUEL_RETRY * 1000) then
     lastRefuel = now
     sync.setJob("tanken")
+    local target = nav.FUEL_TARGET
+    nav.FUEL_TARGET = math.max(target, wanted + 100)
     local ok = pcall(function()
       assert(nav.goDepot())
       nav.unload()
       assert(nav.goHome())
     end)
+    nav.FUEL_TARGET = target
     sync.setJob(nil)
+    fuelWanted = nil
     pcall(sync.run)
     return ok and "getankt" or "tanken gescheitert"
   end
@@ -262,6 +273,7 @@ function M.status()
     lines[#lines + 1] = "PAUSIERT: keine neuen Auftraege (P = weiter)"
   else
     lines[#lines + 1] = "Wartet auf Auftrag"
+    if why then lines[#lines + 1] = "Kein passender: " .. why end
   end
   lines[#lines + 1] = "Fuel: " .. tostring(nav.fuel())
   lines[#lines + 1] = nav.where()
