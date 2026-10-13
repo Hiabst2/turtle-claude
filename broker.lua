@@ -77,7 +77,8 @@ function Broker:rerouteName(name, id)
   end
 end
 
-local HEARTBEAT_FIELDS = { "label", "role", "version", "pos", "fuel", "job", "interval", "offline_until", "note" }
+local HEARTBEAT_FIELDS = { "label", "role", "version", "pos", "fuel", "job", "interval", "offline_until", "note",
+  "mode" }
 
 function Broker:route(msg)
   local now = self.node.now()
@@ -141,6 +142,35 @@ function Broker:route(msg)
     end
   end
   self:save()
+end
+
+-- Sync-Geraete (Turtles) hoeren nur im Sync-Fenster zu: an sie wird nur beim Kontakt gesendet
+function Broker:isSync(id)
+  local d = self.state.devices[id]
+  return d ~= nil and d.mode == "sync"
+end
+
+-- Eine Runde der Gateway-Schleife (gateway.lua ruft das endlos auf, Tests einzeln):
+--   1. empfangen (sofort weiter, wenn schon etwas in der Inbox liegt)
+--   2. alles verarbeiten und verteilen
+--   3. wer sich gemeldet hat, bekommt jetzt seine Post und danach "mq.done"
+--   4. Wiederholungen fuer Geraete mit festem Modem; Sync-Geraete und unbekannte Namen warten
+function Broker:step(timeout)
+  local node = self.node
+  local backlog = #node:list("inbox") > 0
+  node:poll(backlog and 0 or (timeout or 1), { quiet = 0.2 })
+  local active = {}
+  node:process(function(msg)
+    active[msg.source] = true
+    self:route(msg)
+  end)
+  for id in pairs(active) do
+    if type(id) == "number" then
+      if node:pending(id) > 0 then node:flush({ target = id, force = true }) end
+      node:hint(id, "mq.done")
+    end
+  end
+  node:flush({ skip = function(m) return type(m.target) ~= "number" or self:isSync(m.target) end })
 end
 
 -- Zustand eines Geraets nach Whitepaper 5.3

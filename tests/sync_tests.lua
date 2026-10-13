@@ -13,13 +13,7 @@ local function setup(o)
   local function gwStep()
     if busy then return end
     busy = true
-    gw:poll(0)
-    local active = {}
-    gw:process(function(m) active[m.source] = true b:route(m) end)
-    for id in pairs(active) do
-      if gw:pending(id) > 0 then gw:flush({ target = id, force = true }) end
-    end
-    gw:flush()
+    b:step(0)
     busy = false
   end
 
@@ -31,14 +25,27 @@ local function setup(o)
 
   local sync = require("sync")
   sync.now = sim.now
+  -- Warten auf Funk wie im Spiel: die Zeit laeuft in 250-ms-Schritten, das Gateway arbeitet parallel.
+  -- gatewayBusy: so viele Schritte reagiert das Gateway nicht (z.B. weil es gerade auf ein ACK wartet).
   local tlink = net.link()
   local receive = tlink.receive
+  local state = { gatewayBusy = 0 }
   tlink.receive = function(t)
-    gwStep()
-    return receive(t)
+    local deadline = sim.clock + (t or 0) * 1000
+    while true do
+      if state.gatewayBusy > 0 then state.gatewayBusy = state.gatewayBusy - 1 else gwStep() end
+      local packet = receive(0)
+      if packet then return packet end
+      if sim.clock >= deadline then return nil end
+      sim.advance(250)
+    end
   end
+  -- ohne angelegtes Modem empfaengt die Turtle nichts
+  tlink.down = true
+  tlink.close = function() tlink.down = true end
   sync.linkFor = function()
     tlink.node = sync.getNode()
+    tlink.down = false
     return tlink
   end
   sync.messages = {}
@@ -55,7 +62,7 @@ local function setup(o)
   peripheral.wrap = function(side) if side == "left" then return { isWireless = function() return true end } end end
 
   return {
-    sync = sync, gw = gw, b = b, gwStep = gwStep, net = net,
+    sync = sync, gw = gw, b = b, gwStep = gwStep, net = net, state = state,
     equips = function() return equips end,
     done = function()
       peripheral.wrap = wrap
@@ -152,4 +159,56 @@ test("Sync: claude laeuft mit eingeschaltetem TurtleMQ, status zeigt die Zeile",
   local res = lastMsg(cc.sent[2]).content[1].content
   assert(res:find("TurtleMQ: an"), res)
   assert(cc.chat[1] == "ok", tostring(cc.chat[1]))
+end)
+
+test("Sync: Gateway antwortet mit mq.done, die Turtle wartet nicht unnoetig", function()
+  local t = setup()
+  local before = sim.clock
+  t.sync.run()
+  t.done()
+  eq(t.sync.getNode().done, true, "mq.done angekommen")
+  assert(sim.clock - before < 2000, "Sync dauerte " .. (sim.clock - before) .. " ms")
+end)
+
+test("Sync: Post kommt auch an, wenn das Gateway gerade 3 s beschaeftigt ist", function()
+  local t = setup()
+  t.sync.run() -- anmelden (Sync-Geraet)
+  local service = t.net.node(6)
+  service:send(7, "job.assign", { area = "mine1" })
+  service:flush()
+  t.gwStep()
+  sim.advance(61000)
+  t.sync.messages = {}
+  t.state.gatewayBusy = 12 -- 12 x 250 ms
+  t.sync.run()
+  t.done()
+  local found = false
+  for _, m in ipairs(t.sync.messages) do if m.topic == "job.assign" then found = true end end
+  assert(found, "Post verpasst, obwohl das Gateway nur kurz beschaeftigt war")
+  eq(t.gw:pending(7), 0)
+end)
+
+test("Sync: an Sync-Geraete keine Wiederholungen auf Verdacht, Ablauf trotzdem", function()
+  local t = setup()
+  t.sync.run() -- anmelden, Modus sync
+  t.done()
+  eq(t.b:isSync(7), true)
+  local service = t.net.node(6)
+  local sent = 0
+  local transmit = t.gw.link.transmit
+  t.gw.link.transmit = function(p)
+    if p.target == 7 and p.topic == "job.assign" then sent = sent + 1 end
+    return transmit(p)
+  end
+  service:send(7, "job.assign", {}, { ttl = 300 })
+  service:flush()
+  for _ = 1, 5 do
+    t.gwStep()
+    sim.advance(61000)
+  end
+  eq(sent, 0, "Gateway hat ins Leere gefunkt")
+  eq(t.gw:pending(7), 1, "wartet im Postfach")
+  sim.advance(300 * 1000)
+  t.gwStep()
+  eq(t.gw:pending(7), 0, "abgelaufene Post wird trotzdem verworfen")
 end)

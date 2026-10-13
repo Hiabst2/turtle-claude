@@ -38,16 +38,6 @@ local function draw()
 end
 
 while true do
-  node:poll(1, { quiet = 0.2 }) -- nach einem Schwall schnell antworten
-  local active = {}
-  node:process(function(msg)
-    active[msg.source] = true
-    b:route(msg)
-  end)
-  -- wer sich gerade gemeldet hat, ist erreichbar: sofort seine Post schicken
-  for id in pairs(active) do
-    if node:pending(id) > 0 then node:flush({ target = id, force = true }) end
-  end
-  node:flush() -- normale Wiederholungen fuer alles andere
+  b:step(1) -- empfangen, verteilen, Post an wer sich gemeldet hat (siehe broker.lua)
   draw()
 end

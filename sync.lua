@@ -52,6 +52,7 @@ function M.heartbeat()
     fuel = fuel == math.huge and "unbegrenzt" or fuel,
     job = job or false, -- false statt nil, sonst bliebe am Gateway der alte Auftrag stehen
     interval = M.interval(),
+    mode = "sync", -- hoert nur im Sync-Fenster zu
   }
 end
 
@@ -84,13 +85,16 @@ function M.run()
   n:send("gateway", "worker.heartbeat", M.heartbeat(), { ttl = 600 })
   if not registered then
     n:drop(function(m) return m.topic == "mq.register" end)
-    n:register({}, { label = os.getComputerLabel(), role = settings.get("claude.role", "turtle") })
+    n:register({}, { label = os.getComputerLabel(), role = settings.get("claude.role", "turtle"), mode = "sync" })
   end
 
   local ok, res = withLink(function(link)
     n.link = link
+    n.done = false -- mq.done kann schon kommen, waehrend flush noch auf ACKs wartet
     local r = n:flush({ force = true })
-    r.received = n:poll(2, { quiet = 0.5 }) -- Post vom Gateway abholen
+    -- Post abholen: zuhoeren, bis das Gateway "mq.done" schickt (hoechstens 5 s, falls es gerade beschaeftigt ist)
+    r.received = n:poll(5, { untilDone = true })
+    r.done = n.done
     n.link = nil
     if link.close then link.close() end
     return r

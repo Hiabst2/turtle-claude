@@ -173,6 +173,8 @@ end
 -- Nebenbei ankommende Nachrichten werden ganz normal angenommen.
 -- opts.force: auch Nachrichten senden, deren Wartezeit (Backoff) noch nicht um ist (Sync-Fenster)
 -- opts.target: nur Nachrichten an dieses Ziel (Gateway: Postfach eines Geraets, das sich gerade meldet)
+-- opts.skip(msg): true = diesmal nicht senden (Gateway: Sync-Geraete hoeren nur im Sync-Fenster zu).
+--   Abgelaufene Nachrichten werden trotzdem verworfen.
 function Node:flush(opts)
   opts = opts or {}
   local result = { sent = 0, acked = 0, dropped = {} }
@@ -186,6 +188,8 @@ function Node:flush(opts)
     elseif now - msg.ts > msg.ttl * 1000 then
       remove(file)
       result.dropped[#result.dropped + 1] = msg
+    elseif opts.skip and opts.skip(msg) then
+      -- wartet auf den naechsten Kontakt
     elseif opts.force or not msg.next or msg.next <= now then
       msg.attempt = (msg.attempt or 0) + 1
       msg.next = now + backoff(msg.attempt)
@@ -233,9 +237,21 @@ function Node:ack(msg)
   })
 end
 
--- Verarbeitet ein empfangenes Paket. Rueckgabe: "ack", "new", "dup", "expired" oder "ignored".
+-- Kurzer Hinweis ohne Speichern und ohne ACK (z.B. "mq.done": Gateway hat alles fuer dich geschickt)
+function Node:hint(target, topic)
+  if not self.link then return end
+  self.link.transmit({ v = M.VERSION, id = self:newId(), ts = self.now(), source = self.id, target = target,
+    topic = topic })
+end
+
+-- Verarbeitet ein empfangenes Paket. Rueckgabe: "ack", "new", "dup", "expired", "done" oder "ignored".
 function Node:handle(packet)
   if type(packet) ~= "table" or packet.v ~= M.VERSION or type(packet.id) ~= "string" then return "ignored" end
+
+  if packet.topic == "mq.done" then
+    if packet.target == self.id then self.done = true end
+    return "done"
+  end
 
   if packet.topic == "mq.ack" then
     if packet.target ~= self.id or type(packet.reply_to) ~= "string" then return "ignored" end
@@ -272,12 +288,16 @@ end
 
 -- Empfaengt bis zu timeout Sekunden lang (bzw. bis nichts mehr kommt). Gibt die Anzahl neuer Nachrichten zurueck.
 -- opts.quiet: nach dem ersten Paket nur noch so lange auf weitere warten (Sekunden), dann zurueck
+-- opts.untilDone: aufhoeren, sobald das Gateway "mq.done" schickt (Sync-Fenster der Turtle).
+--   self.done vorher selbst zuruecksetzen (vor dem flush), denn das Signal kann schon waehrend
+--   des Wartens auf die ACKs ankommen.
 function Node:poll(timeout, opts)
   if not self.link then return 0 end
   local quiet = opts and opts.quiet
+  local untilDone = opts and opts.untilDone
   local deadline = self.now() + (timeout or 0) * 1000
   local new, got = 0, false
-  while true do
+  while not (untilDone and self.done) do
     local left = math.max(0, (deadline - self.now()) / 1000)
     if got and quiet then left = math.min(left, quiet) end
     local packet = self.link.receive(left)

@@ -8,19 +8,8 @@ local function setup(o)
   return net, gw, b
 end
 
--- eine Runde der Gateway-Schleife (wie gateway.lua)
-local function gwStep(gw, b)
-  gw:poll(0)
-  local active = {}
-  gw:process(function(m)
-    active[m.source] = true
-    b:route(m)
-  end)
-  for id in pairs(active) do
-    if gw:pending(id) > 0 then gw:flush({ target = id, force = true }) end
-  end
-  gw:flush()
-end
+-- eine Runde der Gateway-Schleife, derselbe Code wie im Spiel
+local function gwStep(_, b) b:step(0) end
 
 local function inbox(node)
   local got = {}
