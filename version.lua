@@ -15,7 +15,7 @@ end
 -- kurz, z.B. "a1b2c3d (main, turtle)"
 function M.text()
   local v = M.info()
-  if not v then return "unbekannt (noch nie per update installiert)" end
+  if not v then return "unbekannt (einmal update ausfuehren)" end
   return ("%s (%s, %s)"):format(v.sha and v.sha:sub(1, 7) or "Branch-Stand", tostring(v.channel), tostring(v.role))
 end
 

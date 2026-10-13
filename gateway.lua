@@ -30,9 +30,14 @@ local function draw()
   for i = 1, math.min(#lines, h - 8) do print(lines[i]) end
   term.setTextColor(colors.gray)
   print(("-"):rep(w))
+  -- Geraete mit Namen statt Computer-ID anzeigen, soweit bekannt
+  local function name(id)
+    local d = b.state.devices[id]
+    return d and d.label or tostring(id)
+  end
   for i = 1, math.min(#b.log, 5) do
     local e = b.log[i]
-    print(("%s -> %s  %s"):format(tostring(e.source), tostring(e.target), tostring(e.topic)))
+    print(("%s -> %s  %s"):format(name(e.source), name(e.target), tostring(e.topic)))
   end
   term.setTextColor(colors.white)
 end
