@@ -51,6 +51,12 @@ if not args[1] then
   elseif role == "gateway" then
     if not os.getComputerLabel() then os.setComputerLabel("gateway") end
   end
+  -- TurtleMQ-Geheimnis fuer die Signatur, auf allen Geraeten gleich
+  if role ~= "gps" then
+    local secret = ask("TurtleMQ-Geheimnis (auf allen Geraeten gleich, leer = ohne Signatur)",
+      settings.get("mq.secret") and "unveraendert" or nil, true)
+    if secret and secret ~= "unveraendert" then settings.set("mq.secret", secret) end
+  end
 end
 settings.save()
 

@@ -89,7 +89,11 @@ Turtles melden sich per Heartbeat mit Position, Fuel, Auftrag und Version:
 set mq.enabled true      einschalten (Standard: aus)
 set mq.interval 60       Sekunden zwischen zwei Syncs
 set mq.channel 4242      Funkkanal (überall gleich einstellen)
+set mq.secret <text>     Geheimnis für die Signatur (überall gleich, fragt auch der Bootstrap)
 ```
+
+Mit Geheimnis trägt jede Nachricht eine HMAC-SHA256-Signatur, auch ACKs. Nachrichten ohne gültige
+Signatur werden verworfen; das Gateway zeigt an, von wem zuletzt etwas abgelehnt wurde.
 
 Die Turtle braucht ein Wireless/Ender Modem im Inventar. Für jeden Sync wird es kurz statt der Spitzhacke
 angelegt, die Chat Box bleibt dran. Gesynct wird nur an sicheren Stellen: zwischen zwei Mining-Schritten,

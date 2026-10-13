@@ -13,11 +13,17 @@
 --
 -- Mehrere Knoten koennen im selben Programm laufen (Tests simulieren damit ein ganzes Netz).
 --
+-- Signatur (P2): ist "set mq.secret <text>" gesetzt (auf allen Geraeten gleich), traegt jedes Paket
+-- in "sig" ein HMAC-SHA256 - auch ACKs und mq.done, sonst koennte ein gefaelschtes ACK Nachrichten
+-- aus einer Outbox loeschen. Pakete ohne gueltige Signatur werden verworfen. Signiert ist alles
+-- ausser target, hop und attempt: die aendern sich beim Weiterleiten durch das Gateway.
+--
 -- ACKs gelten pro Strecke: jedes gesendete Paket traegt in "hop" den Sender dieser Strecke, das ACK
 -- geht an hop. Leitet das Gateway weiter, bestaetigt der Empfaenger also dem Gateway. Die id bleibt
 -- dabei gleich, so erkennt der Empfaenger Doppelte auch ueber verschiedene Wege.
 
 local store = require("store")
+local crypto = require("crypto")
 
 local M = {}
 
@@ -52,6 +58,11 @@ function M.new(opts)
   self.link = opts.link
   self.now = opts.now or function() return os.epoch("utc") end
   self.accept = opts.accept -- optional: function(msg) -> true, wenn der Knoten auch fremde Ziele annimmt (Broker)
+  local secret = opts.secret
+  if secret == nil then secret = settings.get("mq.secret") end
+  if secret == "" then secret = nil end
+  self.secret = secret
+  self.rejected = 0
   self.counter = 0
   for _, sub in ipairs({ "outbox", "inbox", "dead" }) do fs.makeDir(self.dir .. "/" .. sub) end
   local seen = store.load(self.dir .. "/seen")
@@ -102,6 +113,47 @@ function Node:markSeen(id)
   store.save(self.dir .. "/seen", self.seen)
 end
 
+-- Signatur -------------------------------------------------------------------
+
+-- eindeutige Textform eines Werts (Tabellen mit sortierten Schluesseln), Grundlage der Signatur
+local function canon(v)
+  local t = type(v)
+  if t == "table" then
+    local keys = {}
+    for k in pairs(v) do keys[#keys + 1] = k end
+    table.sort(keys, function(a, b) return canon(a) < canon(b) end)
+    local parts = {}
+    for _, k in ipairs(keys) do parts[#parts + 1] = canon(k) .. "=" .. canon(v[k]) end
+    return "{" .. table.concat(parts, ",") .. "}"
+  elseif t == "string" then
+    return "s" .. #v .. ":" .. v
+  elseif t == "number" then
+    return "n" .. tostring(v)
+  elseif t == "boolean" then
+    return v and "T" or "F"
+  end
+  return "_"
+end
+M.canon = canon
+
+local SIGNED = { "v", "id", "ts", "source", "topic", "payload", "ttl", "reply_to" }
+
+local function signature(secret, packet)
+  local parts = {}
+  for _, k in ipairs(SIGNED) do parts[#parts + 1] = k .. "=" .. canon(packet[k]) end
+  return crypto.hmac(secret, table.concat(parts, ";"))
+end
+
+function Node:sign(packet)
+  if self.secret then packet.sig = signature(self.secret, packet) end
+  return packet
+end
+
+function Node:verify(packet)
+  if not self.secret then return true end
+  return crypto.equal(packet.sig, signature(self.secret, packet))
+end
+
 -- Nachrichten bauen und senden ----------------------------------------------
 
 function Node:newId()
@@ -122,13 +174,12 @@ function Node:make(target, topic, payload, opts)
     ttl = opts.ttl or M.DEFAULT_TTL,
     reply_to = opts.reply_to,
     attempt = 0,
-    sig = nil, -- Signatur kommt in P2
   }
 end
 
 -- Legt die Nachricht in die Outbox. Gesendet wird beim naechsten flush().
 function Node:send(target, topic, payload, opts)
-  local msg = self:make(target, topic, payload, opts)
+  local msg = self:sign(self:make(target, topic, payload, opts))
   store.save(self:path("outbox", msg.id), msg)
   return msg.id
 end
@@ -226,7 +277,7 @@ function Node:wants(msg)
 end
 
 function Node:ack(msg)
-  self.link.transmit({
+  self.link.transmit(self:sign({
     v = M.VERSION,
     id = self:newId(),
     ts = self.now(),
@@ -234,19 +285,29 @@ function Node:ack(msg)
     target = msg.hop or msg.source, -- ACK gilt fuer diese Strecke
     topic = "mq.ack",
     reply_to = msg.id,
-  })
+  }))
 end
 
 -- Kurzer Hinweis ohne Speichern und ohne ACK (z.B. "mq.done": Gateway hat alles fuer dich geschickt)
 function Node:hint(target, topic)
   if not self.link then return end
-  self.link.transmit({ v = M.VERSION, id = self:newId(), ts = self.now(), source = self.id, target = target,
-    topic = topic })
+  self.link.transmit(self:sign({ v = M.VERSION, id = self:newId(), ts = self.now(), source = self.id,
+    target = target, topic = topic }))
 end
 
--- Verarbeitet ein empfangenes Paket. Rueckgabe: "ack", "new", "dup", "expired", "done" oder "ignored".
+-- Verarbeitet ein empfangenes Paket.
+-- Rueckgabe: "ack", "new", "dup", "expired", "done", "rejected" (Signatur) oder "ignored".
 function Node:handle(packet)
   if type(packet) ~= "table" or packet.v ~= M.VERSION or type(packet.id) ~= "string" then return "ignored" end
+
+  if not self:verify(packet) then
+    -- nur zaehlen, wenn das Paket uns betrifft; fremder Funkverkehr ohne Signatur ist kein Angriff auf uns
+    if packet.target == self.id or self:wants(packet) then
+      self.rejected = self.rejected + 1
+      self.lastRejected = packet.source
+    end
+    return "rejected"
+  end
 
   if packet.topic == "mq.done" then
     if packet.target == self.id then self.done = true end

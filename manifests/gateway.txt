@@ -4,6 +4,7 @@ version.lua
 bootstrap.lua
 startup.lua
 store.lua
+crypto.lua
 mq.lua
 broker.lua
 gateway.lua

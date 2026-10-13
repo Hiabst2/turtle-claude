@@ -20,6 +20,12 @@ local function draw()
   term.setTextColor(colors.yellow)
   print(("TurtleMQ Gateway #%d  Kanal %d  Outbox %d"):format(node.id, settings.get("mq.channel", mq.CHANNEL),
     node:pending()))
+  if node.rejected > 0 then
+    term.setTextColor(colors.orange)
+    local from = b.state.devices[node.lastRejected]
+    print(("%d Paket(e) mit falscher/fehlender Signatur abgelehnt, zuletzt von %s"):format(node.rejected,
+      from and from.label or ("#" .. tostring(node.lastRejected))))
+  end
   local dead = #node:list("dead")
   if dead > 0 then
     term.setTextColor(colors.red)
