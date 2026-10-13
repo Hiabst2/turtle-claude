@@ -3,7 +3,7 @@ package.path = "./?.lua;./tests/?.lua;" .. package.path
 local say = function(s) io.write(s, "\n") end -- print ist durch die CC-Attrappe belegt
 local cc = require("cc")
 
-local MODULES = { "store", "zones", "gear", "nav", "path", "mine", "colony" }
+local MODULES = { "store", "zones", "gear", "nav", "path", "mine", "colony", "mq", "version" }
 local function fresh()
   cc.reset()
   for _, m in ipairs(MODULES) do package.loaded[m] = nil end
@@ -345,6 +345,10 @@ test("B5: unerreichbarer Bereich zaehlt nicht als erledigt", function()
   eq(n, 1, "erledigt")
   eq(opts.unreachable["16,0,0"], true, "als unerreichbar gemerkt")
 end)
+
+-- weitere Testdateien bekommen test/eq als globale Funktionen
+_G.test, _G.eq = test, eq
+dofile("tests/mq_tests.lua")
 
 say(("\n%d ok, %d fehlgeschlagen"):format(passed, failed))
 os.exit(failed == 0 and 0 or 1)

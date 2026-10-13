@@ -12,6 +12,12 @@ fs = {
   exists = function(p) local f = io.open(real(p), "r") if f then f:close() return true end return false end,
   isDir = function(p) return os.execute("test -d '" .. real(p) .. "'") == true end,
   makeDir = function(p) os.execute("mkdir -p '" .. real(p) .. "'") end,
+  list = function(p)
+    local names, pipe = {}, io.popen("ls -A '" .. real(p) .. "' 2>/dev/null")
+    for name in pipe:lines() do names[#names + 1] = name end
+    pipe:close()
+    return names
+  end,
   delete = function(p) os.execute("rm -rf '" .. real(p) .. "'") end,
   move = function(a, b) assert(os.rename(real(a), real(b))) end,
   open = function(p, mode)
@@ -79,6 +85,9 @@ M.events = {}
 os.queueEvent = function(...) M.events[#M.events + 1] = table.pack(...) end
 os.pullEvent = function(filter) return coroutine.yield(filter) end
 os.getComputerLabel = function() return M.label end
+M.timers = 0
+os.startTimer = function() M.timers = M.timers + 1 return M.timers end
+os.cancelTimer = function() end
 os.epoch = function() return 0 end
 sleep = function() end
 

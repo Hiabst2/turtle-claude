@@ -3,6 +3,7 @@ version.lua
 bootstrap.lua
 startup.lua
 store.lua
+mq.lua
 zones.lua
 gear.lua
 nav.lua
