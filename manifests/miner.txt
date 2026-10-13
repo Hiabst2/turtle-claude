@@ -1,0 +1,20 @@
+# Rolle miner: Mining-Turtle ohne Claude, Bedienung im Terminal
+update.lua
+version.lua
+bootstrap.lua
+startup.lua
+store.lua
+zones.lua
+gear.lua
+nav.lua
+path.lua
+mine.lua
+stripmine.lua
+tunnel.lua
+orehunt.lua
+gohome.lua
+sethome.lua
+setdepot.lua
+goto.lua
+gpsfix.lua
+zone.lua

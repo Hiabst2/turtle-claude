@@ -104,12 +104,17 @@ parallel = {
   end,
 }
 
-M.web = {} -- Dateien fuer http.get: Teil der URL -> Inhalt
+-- Dateien fuer http.get, Schluessel "<ref>/<pfad>" (z.B. "main/update.lua", "abc123/nav.lua")
+-- oder "api:<branch>" fuer die GitHub-API (Inhalt dann eine Tabelle, unserializeJSON reicht sie durch)
+M.web = {}
+M.gets = {}
 http = {
   get = function(url)
-    local path = url:match("/main/([^?]+)") or url:match("/[%w_-]+/([^/?]+)%?")
-    local body = M.web[path]
-    if not body then return nil, "404" end
+    M.gets[#M.gets + 1] = url
+    local key = url:find("api.github.com", 1, true) and ("api:" .. url:match("commits/(.+)$"))
+      or url:match("turtle%-claude/([^?]+)")
+    local body = M.web[key]
+    if not body then return nil, "404 " .. tostring(key) end
     return { readAll = function() return body end, close = function() end }
   end,
   -- Eine Antwort { fail = 529 } simuliert einen HTTP-Fehler, { fail = "timeout" } einen Timeout
@@ -129,6 +134,18 @@ http = {
     return { readAll = function() return resp end, close = function() end }
   end,
 }
+
+-- shell.run startet ein Programm aus dem simulierten Dateisystem
+shell = {
+  run = function(prog, ...)
+    local file = fs.exists(prog) and prog or (prog .. ".lua")
+    local fn = assert(loadfile(real(file)))
+    return fn(...)
+  end,
+}
+os.setComputerLabel = function(l) M.label = l end
+os.getComputerID = function() return 7 end
+write = function(s) M.out[#M.out + 1] = s end
 
 colors = setmetatable({}, { __index = function() return 0 end })
 term = { setTextColor = function() end, clear = function() end, setCursorPos = function() end }

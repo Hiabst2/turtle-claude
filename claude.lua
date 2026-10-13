@@ -18,6 +18,7 @@ local mine = require("mine")
 local colony = require("colony")
 local zones = require("zones")
 local gear = require("gear")
+local version = require("version")
 
 local MODEL = settings.get("claude.model", "claude-opus-5")
 local NAME = os.getComputerLabel() or "Hiabst"
@@ -25,7 +26,6 @@ local TRIGGER = NAME:lower()
 local API = "https://api.anthropic.com/v1/messages"
 local MAX_HISTORY = 40
 local MAX_STEPS = 25
-local VERSION = "2026-10-14b"
 local OWNER = settings.get("claude.owner") -- Minecraft-Name, der per Chat Zonen aendern darf
 local DEBUG = settings.get("claude.debug", false) -- set claude.debug true: Tool-Ergebnisse im Terminal zeigen
 
@@ -99,7 +99,8 @@ local function runCommands(input)
 end
 
 local function status()
-  local lines = { "Fuel: " .. tostring(turtle.getFuelLevel()) .. " / " .. tostring(turtle.getFuelLimit()), nav.where(),
+  local lines = { "Version: " .. version.text(),
+    "Fuel: " .. tostring(turtle.getFuelLevel()) .. " / " .. tostring(turtle.getFuelLimit()), nav.where(),
     "Ausgewaehlter Slot: " .. turtle.getSelectedSlot(), "Inventar:" }
   for slot = 1, 16 do
     local item = turtle.getItemDetail(slot)
@@ -792,7 +793,7 @@ term.clear()
 term.setCursorPos(1, 1)
 print(NAME .. " ist online (" .. MODEL .. ")")
 print(nav.where())
-print("Version " .. VERSION .. ", " .. #TOOLS .. " Tools, Colony Integrator: "
+print("Version " .. version.text() .. ", " .. #TOOLS .. " Tools, Colony Integrator: "
   .. ((peripheral.find("colonyIntegrator") or peripheral.find("colony_integrator")) and "gefunden" or "NICHT gefunden"))
 print(chatBox and ("Chat Box gefunden. Im Chat mit \"" .. NAME .. ", ...\" ansprechen.")
   or "Keine Chat Box. Hier tippen. Abbrechen mit Strg+T.")

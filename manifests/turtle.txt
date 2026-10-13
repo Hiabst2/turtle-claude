@@ -1,0 +1,23 @@
+# Rolle turtle: Claude-Turtle mit Chat, Mining und Kolonie
+update.lua
+version.lua
+bootstrap.lua
+startup.lua
+store.lua
+zones.lua
+gear.lua
+nav.lua
+path.lua
+mine.lua
+colony.lua
+claude.lua
+stripmine.lua
+tunnel.lua
+orehunt.lua
+gohome.lua
+sethome.lua
+setdepot.lua
+goto.lua
+gpsfix.lua
+zone.lua
+kolonie.lua

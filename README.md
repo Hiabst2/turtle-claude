@@ -3,18 +3,25 @@
 Eine Mining Turtle (CC:Tweaked) mit Claude als Gehirn: Spieler reden per Chat mit ihr,
 Claude steuert sie über Tools und nutzt fertige Programme für größere Aufgaben.
 
-## Installation in der Turtle
+## Installation
+
+Auf jeder neuen Turtle bzw. jedem neuen Computer:
 
 ```
-wget https://raw.githubusercontent.com/Hiabst2/turtle-claude/main/update.lua update
-update
-label set Hiabst
-set claude.key sk-ant-...
-sethome
-claude
+wget run https://raw.githubusercontent.com/Hiabst2/turtle-claude/main/bootstrap.lua
 ```
 
-Später reicht `update`, um alles auf den neuesten Stand zu bringen.
+Der Bootstrap fragt die Rolle ab und richtet alles ein:
+
+| Rolle | Gerät | Inhalt |
+|---|---|---|
+| `turtle` | Turtle | Claude-Turtle: Chat, Mining, Kolonie (fragt API-Key, Besitzer, Name) |
+| `miner` | Turtle | Mining-Programme ohne Claude, Bedienung im Terminal |
+| `gps` | Computer | GPS-Sender (fragt die eigenen Koordinaten) |
+
+Später reicht `update`. Es lädt nur die Dateien der eigenen Rolle (`manifests/<rolle>.txt`), alle vom
+selben Commit, und tauscht erst aus, wenn alles da ist. `version` zeigt, was installiert ist.
+Rolle und Kanal ändern: `set claude.role <rolle>`, `set claude.channel <branch>`, dann `update`.
 
 ## Programme
 
@@ -31,7 +38,9 @@ Später reicht `update`, um alles auf den neuesten Stand zu bringen.
 | `kolonie [thema]` | MineColonies-Infos: overview, requests, citizens, buildings, workorders, research, visitors |
 | `zone list / add / here / del / maxy` | Wo gegraben werden darf (Weltkoordinaten, GPS nötig) |
 | `orehunt [bereiche] [radius]` | Erzjagd mit dem Geo Scanner: Wegsuche durch Höhlen und eigene Gänge, so wenig Stein wie möglich; Scan-Bereiche ohne Überschneidung |
-| `update` | Alles neu von GitHub laden |
+| `update [force]` | Programme der eigenen Rolle neu von GitHub laden |
+| `version` | Installierte Version (Commit, Kanal, Rolle) |
+| `bootstrap [rolle] [kanal]` | Gerät neu einrichten |
 
 `nav.lua` und `mine.lua` sind Bibliotheken, die von den Programmen geladen werden.
 Der API-Key liegt nur in den Turtle-Settings, nie im Repo.
@@ -68,12 +77,11 @@ Eigener Platz zum Ausladen und Tanken, z.B. am Tom's-Storage-Lager:
 - **unter, rechts oder links**: *Filtered Cable Connector* mit Filter Kohle – davon wird nachgetankt (bis 5000, `set claude.fuel_target`)
 - **über** dem Lagerplatz frei bis zur Reisehöhe
 
-## Kanäle und Tests
+## Entwicklung
 
-`set claude.channel <branch>` wählt den Git-Branch, von dem `update` lädt (Standard `main`).
-`update` lädt erst alles herunter und tauscht nur bei vollständigem Erfolg aus.
-
-Tests ohne Minecraft (braucht Lua 5.2): `sh tests/test.sh`
+- Neue Datei: in die passenden `manifests/*.txt` eintragen. `files.txt` ist nur noch für alte
+  `update`-Versionen da und muss dem Turtle-Manifest entsprechen (prüft ein Test).
+- Tests ohne Minecraft (braucht Lua 5.2): `sh tests/test.sh`
 
 ## Zwischenkiste
 
