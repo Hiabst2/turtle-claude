@@ -95,6 +95,10 @@ set mq.secret <text>     Geheimnis für die Signatur (überall gleich, fragt auc
 Mit Geheimnis trägt jede Nachricht eine HMAC-SHA256-Signatur, auch ACKs. Nachrichten ohne gültige
 Signatur werden verworfen; das Gateway zeigt an, von wem zuletzt etwas abgelehnt wurde.
 
+Claude kann den Status aller Geräte beim Gateway abfragen („Hiabszt, wie geht's den anderen Turtles?“):
+Name, Rolle, Zustand, Position, Fuel, Auftrag, wartende Post. Das Gateway warnt bei doppelten Namen.
+Miner-Turtles ohne Claude melden sich vorerst nur während eines Auftrags (Leerlauf-Dienst kommt mit P3).
+
 Die Turtle braucht ein Wireless/Ender Modem im Inventar. Für jeden Sync wird es kurz statt der Spitzhacke
 angelegt, die Chat Box bleibt dran. Gesynct wird nur an sicheren Stellen: zwischen zwei Mining-Schritten,
 im Leerlauf von `claude` und am Ende eines Auftrags. Nachrichten gehen nicht verloren, auch wenn die Turtle

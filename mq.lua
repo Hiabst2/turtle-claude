@@ -163,10 +163,14 @@ end
 
 function Node:make(target, topic, payload, opts)
   opts = opts or {}
+  -- streng steigend, damit die Reihenfolge eigener Nachrichten auch innerhalb einer Millisekunde stimmt
+  -- (die Outbox sortiert nach ts; der Zaehler in der id wuerde als Text verglichen: "10" < "9")
+  local ts = math.max(self.now(), (self.lastTs or 0) + 1)
+  self.lastTs = ts
   return {
     v = M.VERSION,
     id = self:newId(),
-    ts = self.now(),
+    ts = ts,
     source = self.id,
     target = target,
     topic = topic,

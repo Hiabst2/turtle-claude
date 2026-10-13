@@ -1,7 +1,8 @@
 -- broker.lua - Logik des Gateways (TurtleMQ-Broker)
 --
 -- Das Gateway nimmt jede Nachricht an (mq-Knoten mit accept = alles) und gibt sie hier an route():
---   * Steuerung:   mq.register (Namen/Infos), mq.subscribe/unsubscribe (Topics), mq.fetch, system.discovery
+--   * Steuerung:   mq.register (Namen/Infos), mq.subscribe/unsubscribe (Topics), mq.fetch, system.discovery,
+--                  system.status (Antwort: alle Geraete mit Zustand, Position, Fuel, Auftrag)
 --   * Zustellung:  an Computer-ID, an registrierten Namen (wartet, bis sich jemand unter dem Namen meldet),
 --                  an "*" (alle bekannten Geraete) oder an "gateway" (nur an Abonnenten)
 --   * Abonnenten:  bekommen eine Kopie jeder Nachricht, deren Topic passt ("worker.*", "*", genauer Name)
@@ -110,6 +111,8 @@ function Broker:route(msg)
     end
   elseif topic == "mq.fetch" then
     -- nur Lebenszeichen; die Post schickt gateway.lua, weil sich das Geraet gemeldet hat
+  elseif topic == "system.status" then
+    self.node:send(msg.source, "system.status.reply", { devices = self:snapshot(now) }, { reply_to = msg.id })
   elseif topic == "system.discovery" then
     local devices = {}
     for id, dev in pairs(self.state.devices) do
@@ -192,6 +195,31 @@ local function ago(ms)
   return math.floor(s / 3600) .. "h"
 end
 
+-- Alle Geraete mit Zustand, fuer system.status (z.B. Claude: "wie geht's den anderen Turtles?")
+function Broker:snapshot(now)
+  now = now or self.node.now()
+  local list = {}
+  for id, d in pairs(self.state.devices) do
+    list[#list + 1] = {
+      id = id, label = d.label, role = d.role, state = self:stateOf(d, now),
+      seen_s = d.last_seen and math.floor((now - d.last_seen) / 1000) or nil,
+      pos = d.pos, fuel = d.fuel, job = d.job or nil, version = d.version, mail = self.node:pending(id),
+    }
+  end
+  table.sort(list, function(a, b) return tostring(a.label or a.id) < tostring(b.label or b.id) end)
+  return list
+end
+
+-- Namen, die mehrere Geraete gleichzeitig tragen (verwechselbar im Chat und auf dem Bildschirm)
+function Broker:duplicateLabels()
+  local count, dup = {}, {}
+  for _, d in pairs(self.state.devices) do
+    if d.label then count[d.label] = (count[d.label] or 0) + 1 end
+  end
+  for label, n in pairs(count) do if n > 1 then dup[label] = true end end
+  return dup
+end
+
 -- Eine Zeile pro Geraet fuer den Bildschirm des Gateways
 function Broker:statusLines(now)
   now = now or self.node.now()
@@ -199,9 +227,13 @@ function Broker:statusLines(now)
   for _, d in pairs(self.state.devices) do list[#list + 1] = d end
   table.sort(list, function(a, b) return tostring(a.label or a.id) < tostring(b.label or b.id) end)
   local lines = {}
+  local dup = self:duplicateLabels()
   for _, d in ipairs(list) do
+    local name = tostring(d.label or ("#" .. d.id))
+    if dup[d.label] then name = name .. "(#" .. d.id .. ", Name doppelt!)" end
     local parts = {
-      tostring(d.label or ("#" .. d.id)),
+      name,
+      d.role and ("[" .. tostring(d.role) .. "]") or "",
       self:stateOf(d, now),
       d.last_seen and ("vor " .. ago(now - d.last_seen)) or "",
     }

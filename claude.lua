@@ -145,6 +145,8 @@ local SYSTEM = ([[Du bist %s, eine Mining Turtle in Minecraft (ComputerCraft). S
   1. falls noetig go_home, 2. gear take [player_detector, geo_scanner, modem], 3. come_to_player,
   4. dort orehunt (mit Geo Scanner) oder stripmine, je nach Wunsch, 5. danach wieder come_to_player,
   damit die Turtle zum Spieler zurueckkommt. Kurz Bescheid geben, was du gerade machst.
+- Fragen zu den anderen Turtles und Geraeten ("wie geht's den anderen?", "wo ist Miner 2?") beantwortest du mit
+  dem Tool fleet (Status vom TurtleMQ-Gateway).
 - Spieler koennen jederzeit "stop" schreiben, dann bricht das laufende Programm ab.]]):format(NAME)
 
 -- jedes Schema braucht eine eigene Tabelle, serializeJSON mag keine doppelt verwendeten
@@ -298,6 +300,13 @@ local TOOLS = {
         drop_junk = { type = "boolean", description = "Bruchstein, Erde, Kies usw. wegwerfen (Standard true)" },
       },
     },
+  },
+  {
+    name = "fleet",
+    description = "Status aller Geraete im TurtleMQ-Netz vom Gateway: Name, Rolle, Zustand (online, verspaetet, "
+      .. "overdue, lost), wann zuletzt gemeldet, Position, Fuel, Auftrag, Version, wartende Post. "
+      .. "Braucht TurtleMQ (mq.enabled) und ein Modem im Inventar.",
+    input_schema = empty(),
   },
   {
     name = "set_depot",
@@ -460,7 +469,7 @@ end
 local mayEditZones = isOwner
 
 local function readOnly(name, input)
-  if name == "status" or name == "colony" then return true end
+  if name == "status" or name == "colony" or name == "fleet" then return true end
   if name == "zones" or name == "gear" then return (input.action or "list") == "list" end
   if name == "config" then return input.action ~= "set" end
   return false
@@ -618,6 +627,19 @@ local function runTool(name, input, say, user)
     return (name == "set_depot" and "Lagerplatz" or "Heimplatz") .. " gesetzt. " .. nav.where()
   end
   if name == "config" then return configTool(input) end
+  if name == "fleet" then
+    local reply, err = sync.ask("system.status")
+    if not reply then return "Kein Flottenstatus: " .. tostring(err) end
+    local lines = {}
+    for _, d in ipairs(reply.devices or {}) do
+      local pos = type(d.pos) == "table" and (" bei %s %s %s"):format(tostring(d.pos.x), tostring(d.pos.y), tostring(d.pos.z)) or ""
+      lines[#lines + 1] = ("%s [%s]: %s, vor %ss%s%s%s%s"):format(tostring(d.label or ("#" .. tostring(d.id))),
+        tostring(d.role), tostring(d.state), tostring(d.seen_s), pos,
+        d.fuel and (", Fuel " .. tostring(d.fuel)) or "", d.job and (", " .. tostring(d.job)) or "",
+        (d.mail or 0) > 0 and (", " .. d.mail .. " Post wartet") or "")
+    end
+    return #lines > 0 and table.concat(lines, "\n") or "Keine Geraete beim Gateway bekannt."
+  end
   if name == "go_to" then
     local ok, res, err = pcall(nav.goTo, input.x, input.y, input.z)
     if ok and res then return "Angekommen. " .. nav.where() end

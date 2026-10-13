@@ -182,6 +182,15 @@ test("MQ: fremde Ziele werden ignoriert, Namen und Broadcast angenommen", functi
   eq(broker:handle(pkt(99, 4)), "new", "Broker nimmt alles an")
 end)
 
+test("MQ: Reihenfolge bleibt auch bei vielen Nachrichten in derselben Millisekunde", function()
+  local net = newNet({ loss = 1 })
+  local a = node(net, 1)
+  for i = 1, 15 do a:send(2, "t", { i = i }) end -- Zaehler 1..15, gleiche Uhrzeit
+  local order = {}
+  for _, m in ipairs(a:list("outbox")) do order[#order + 1] = m.payload.i end
+  eq(table.concat(order, ","), "1,2,3,4,5,6,7,8,9,10,11,12,13,14,15")
+end)
+
 test("MQ: Dateinamen enthalten keine Doppelpunkte", function()
   local net = newNet({ loss = 1 })
   local a = node(net, 1)

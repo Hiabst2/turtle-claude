@@ -76,7 +76,9 @@ local function withLink(fn)
 end
 
 -- Jetzt syncen (wenn eingeschaltet). Gibt true/false und eine kurze Beschreibung zurueck.
-function M.run()
+-- request = { topic, payload }: zusaetzliche Frage, die NACH Heartbeat und Anmeldung rausgeht
+-- (sonst kennt das Gateway beim ersten Kontakt den Fragenden noch nicht); request.id wird gesetzt.
+function M.run(request)
   if not M.enabled() then return false, "TurtleMQ ist aus (set mq.enabled true)" end
   lastSync = M.now()
   local n = getNode()
@@ -87,6 +89,7 @@ function M.run()
     n:drop(function(m) return m.topic == "mq.register" end)
     n:register({}, { label = os.getComputerLabel(), role = settings.get("claude.role", "turtle"), mode = "sync" })
   end
+  if request then request.id = n:send("gateway", request.topic, request.payload or {}, { ttl = 120 }) end
 
   local ok, res = withLink(function(link)
     n.link = link
@@ -111,6 +114,23 @@ function M.run()
     text = ("gesendet %d, bestaetigt %d, empfangen %d, offen %d"):format(res.sent, res.acked, handled, n:pending()),
   }
   return true, M.last.text
+end
+
+-- Frage an das Gateway, Antwort kommt im selben Sync-Fenster zurueck (z.B. system.status).
+-- Gibt das payload der Antwort zurueck, oder nil und einen Grund.
+function M.ask(topic, payload)
+  if not M.enabled() then return nil, "TurtleMQ ist aus (set mq.enabled true)" end
+  local request = { topic = topic, payload = payload }
+  local answer
+  local onMessage = M.onMessage
+  M.onMessage = function(msg)
+    if request.id and msg.reply_to == request.id then answer = msg.payload else onMessage(msg) end
+  end
+  local ok, text = pcall(M.run, request)
+  M.onMessage = onMessage
+  if not ok then return nil, tostring(text) end
+  if answer == nil then return nil, "keine Antwort vom Gateway (" .. tostring(M.last and M.last.text) .. ")" end
+  return answer
 end
 
 -- Syncen, falls das Intervall um ist. An sicheren Stellen aufrufen.

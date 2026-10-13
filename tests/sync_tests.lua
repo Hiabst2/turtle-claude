@@ -212,3 +212,61 @@ test("Sync: an Sync-Geraete keine Wiederholungen auf Verdacht, Ablauf trotzdem",
   t.gwStep()
   eq(t.gw:pending(7), 0, "abgelaufene Post wird trotzdem verworfen")
 end)
+
+test("Flotte: Turtle fragt den Status aller Geraete ab, Antwort im selben Sync", function()
+  local t = setup()
+  local other = t.net.node(6)
+  other:send("gateway", "worker.heartbeat", { label = "Miner2", role = "miner", fuel = 300,
+    pos = { x = 1, y = 2, z = 3 }, job = "orehunt 1/4", interval = 60 })
+  other:flush()
+  t.gwStep()
+  local reply, err = t.sync.ask("system.status")
+  t.done()
+  assert(reply, err)
+  local byLabel = {}
+  local names = {}
+  for _, d in ipairs(reply.devices) do
+    byLabel[d.label or ("#" .. d.id)] = d
+    names[#names + 1] = tostring(d.label) .. "#" .. tostring(d.id)
+  end
+  assert(byLabel.Miner2 and byLabel.Hiabst, "Geraete fehlen: " .. table.concat(names, ", "))
+  eq(byLabel.Miner2.role, "miner") eq(byLabel.Miner2.state, "online") eq(byLabel.Miner2.job, "orehunt 1/4")
+  eq(byLabel.Miner2.pos.z, 3) eq(byLabel.Hiabst.fuel, 1000)
+end)
+
+test("Flotte: ohne TurtleMQ eine klare Meldung", function()
+  local t = setup({ enabled = false })
+  local reply, err = t.sync.ask("system.status")
+  t.done()
+  eq(reply, nil) assert(err:find("TurtleMQ ist aus"), err)
+end)
+
+test("Flotte: Gateway zeigt Rollen und warnt bei doppelten Namen", function()
+  local t = setup()
+  for _, id in ipairs({ 6, 8 }) do
+    local n = t.net.node(id)
+    n:send("gateway", "worker.heartbeat", { label = "Miner", role = "miner" })
+    n:flush()
+  end
+  t.gwStep()
+  t.done()
+  local text = table.concat(t.b:statusLines(), "\n")
+  assert(text:find("%[miner%]"), text)
+  assert(text:find("Name doppelt"), text)
+end)
+
+test("Flotte: claude-Tool fleet zeigt die Geraete lesbar an", function()
+  -- sync durch eine Attrappe ersetzen, damit nur das Tool selbst getestet wird
+  package.loaded.sync = {
+    enabled = function() return true end, interval = function() return 60 end, maybe = function() end,
+    run = function() return true end, setJob = function() end, describe = function() return "TurtleMQ: an" end,
+    ask = function(topic)
+      assert(topic == "system.status")
+      return { devices = { { id = 6, label = "Miner2", role = "miner", state = "online", seen_s = 12,
+        pos = { x = 1, y = 2, z = 3 }, fuel = 300, job = "orehunt 1/4", mail = 2 } } }
+    end,
+  }
+  runClaude({ { "chat", "Fremder", "hiabst, wie gehts den anderen?" } }, { toolUse("fleet"), text("ok") }, "Hiabstla")
+  local res = lastMsg(cc.sent[2]).content[1].content
+  assert(res:find("Miner2 %[miner%]: online, vor 12s bei 1 2 3, Fuel 300, orehunt 1/4, 2 Post wartet"), res)
+end)
