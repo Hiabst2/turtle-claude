@@ -9,6 +9,7 @@ local ROLES = {
   miner = { turtle = true, text = "Mining-Turtle ohne Claude (stripmine, orehunt, ... im Terminal)" },
   gps = { turtle = false, text = "GPS-Sender (Computer mit Modem)" },
   gateway = { turtle = false, text = "TurtleMQ-Gateway (Computer mit Ender Modem, Chunk dauerhaft laden!)" },
+  central = { turtle = false, text = "Zentrale mit Job-Dienst (Computer mit Ender Modem, Chunk dauerhaft laden!)" },
 }
 
 local function ask(question, default, hidden)
@@ -50,6 +51,11 @@ if not args[1] then
     if not os.getComputerLabel() then os.setComputerLabel("gps-" .. os.getComputerID()) end
   elseif role == "gateway" then
     if not os.getComputerLabel() then os.setComputerLabel("gateway") end
+  elseif role == "central" then
+    if not os.getComputerLabel() then os.setComputerLabel("Zentrale") end
+  elseif role == "miner" then
+    settings.set("mq.enabled", true) -- der Worker-Dienst braucht TurtleMQ
+    os.setComputerLabel(ask("Name der Turtle", os.getComputerLabel() or ("Miner" .. os.getComputerID())))
   end
   -- TurtleMQ-Geheimnis fuer die Signatur, auf allen Geraeten gleich
   if role ~= "gps" then
@@ -73,7 +79,10 @@ print("Fertig. Rolle " .. role .. ", Kanal " .. channel .. ".")
 if role == "turtle" then
   print("Naechste Schritte: Turtle an den Heimplatz stellen, sethome, gpsfix, dann reboot.")
 elseif role == "miner" then
-  print("Naechste Schritte: sethome, gpsfix, Zone anlegen (zone), dann z.B. orehunt.")
+  print("Naechste Schritte: Ender Modem + Geo Scanner ins Inventar, sethome, gpsfix, Zone anlegen,")
+  print("dann reboot: der Worker-Dienst holt sich Auftraege von der Zentrale.")
+elseif role == "central" then
+  print("Neustart startet die Zentrale: reboot. Den Chunk per FTB Chunks dauerhaft laden!")
 elseif role == "gateway" then
   print("Neustart startet das Gateway: reboot. Den Chunk per FTB Chunks dauerhaft laden!")
 else

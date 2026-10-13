@@ -25,6 +25,10 @@ M.onMessage = function(msg)
 end
 
 local node, lastSync, job, registered = nil, nil, nil, false
+-- Funktionen, die bei jedem Sync Nachrichten in die Outbox legen duerfen (z.B. der Worker-Dienst:
+-- worker.idle oder job.progress). Sie bekommen den mq-Knoten.
+M.hooks = {}
+function M.addHook(fn) M.hooks[#M.hooks + 1] = fn end
 M.last = nil -- Ergebnis des letzten Syncs (fuer status)
 
 function M.enabled() return settings.get("mq.enabled", false) == true end
@@ -32,6 +36,7 @@ function M.interval() return settings.get("mq.interval", 60) end
 
 -- aktueller Auftrag fuer den Heartbeat, z.B. "orehunt 2/4" (nil = keiner)
 function M.setJob(text) job = text end
+function M.getJob() return job end
 
 local function getNode()
   if not node then node = mq.new({ dir = "/.mq", now = M.now }) end
@@ -88,6 +93,10 @@ function M.run(request)
   if not registered then
     n:drop(function(m) return m.topic == "mq.register" end)
     n:register({}, { label = os.getComputerLabel(), role = settings.get("claude.role", "turtle"), mode = "sync" })
+  end
+  for _, hook in ipairs(M.hooks) do
+    local ok, err = pcall(hook, n)
+    if not ok then printError("Sync-Hook: " .. tostring(err)) end
   end
   if request then request.id = n:send("gateway", request.topic, request.payload or {}, { ttl = 120 }) end
 

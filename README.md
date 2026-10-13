@@ -19,6 +19,7 @@ Der Bootstrap fragt die Rolle ab und richtet alles ein:
 | `miner` | Turtle | Mining-Programme ohne Claude, Bedienung im Terminal |
 | `gps` | Computer | GPS-Sender (fragt die eigenen Koordinaten) |
 | `gateway` | Computer | TurtleMQ-Gateway mit Statusanzeige aller Geräte (Ender Modem, Chunk dauerhaft laden) |
+| `central` | Computer | Zentrale mit Job-Dienst: verteilt Aufträge an Miner (Ender Modem, Chunk dauerhaft laden) |
 
 Später reicht `update`. Es lädt nur die Dateien der eigenen Rolle (`manifests/<rolle>.txt`), alle vom
 selben Commit, und tauscht erst aus, wenn alles da ist. `version` zeigt, was installiert ist.
@@ -103,6 +104,28 @@ Die Turtle braucht ein Wireless/Ender Modem im Inventar. Für jeden Sync wird es
 angelegt, die Chat Box bleibt dran. Gesynct wird nur an sicheren Stellen: zwischen zwei Mining-Schritten,
 im Leerlauf von `claude` und am Ende eines Auftrags. Nachrichten gehen nicht verloren, auch wenn die Turtle
 länger kein Signal hat; Post vom Gateway holt sie beim nächsten Sync ab.
+
+## Zentrale und Aufträge (P3)
+
+Die Zentrale (Rolle `central`) verteilt Aufträge an Miner-Turtles. Miner mit TurtleMQ starten den
+Worker-Dienst (`worker`) automatisch: Er meldet sich frei, bekommt beim nächsten Sync einen passenden
+Auftrag, arbeitet ihn mit den normalen Programmen ab (alle Schutzregeln gelten) und meldet Fortschritt.
+
+Auftrag anlegen in der Eingabezeile der Zentrale, z.B.:
+
+```
+add orehunt x=725 y=40 z=630 f=nord rounds=2 area=700,0,600,750,60,650
+add tunnel x=710 y=40 z=610 f=sued length=20 width=3 height=3 prio=8
+list
+cancel J3
+```
+
+- Zuteilung nach Rolle und Ausrüstung (Erzjagd nur mit Geo Scanner), Priorität vor Alter
+- Lease: meldet sich ein Worker 5 Minuten nicht, geht der Auftrag zurück in die Warteschlange;
+  kommt der alte Worker zurück, wird er gestoppt
+- Aufträge mit überlappendem Bereich (`area`) laufen nie gleichzeitig
+- nach 3 Fehlschlägen ist ein Auftrag endgültig gescheitert
+- Worker: `P` pausiert (keine neuen Aufträge), `Q` zurück zur Shell
 
 ## Entwicklung
 

@@ -199,6 +199,15 @@ function Node:forward(msg, to)
   return copy.key
 end
 
+-- Stellt eine Nachricht an einen Dienst auf diesem Computer zu, ohne Funk: direkt in die eigene Inbox
+-- (persistent, mit Dedupe wie jede andere Nachricht). Fuer den Service-Host der Zentrale.
+function Node:deliverLocal(target, topic, payload, opts)
+  local msg = self:sign(self:make(target, topic, payload, opts))
+  msg.tries = 0
+  store.save(self:path("inbox", msg.id), msg)
+  return msg.id
+end
+
 -- Entfernt Nachrichten aus der Outbox, fuer die filter(msg) true liefert (z.B. veraltete Heartbeats)
 function Node:drop(filter)
   local n = 0

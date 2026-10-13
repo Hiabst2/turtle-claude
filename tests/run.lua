@@ -3,7 +3,7 @@ package.path = "./?.lua;./tests/?.lua;" .. package.path
 local say = function(s) io.write(s, "\n") end -- print ist durch die CC-Attrappe belegt
 local cc = require("cc")
 
-local MODULES = { "store", "zones", "gear", "nav", "path", "mine", "colony", "mq", "version", "broker", "sync", "crypto" }
+local MODULES = { "store", "zones", "gear", "nav", "path", "mine", "colony", "mq", "version", "broker", "sync", "crypto", "services", "jobsvc", "jobrunner" }
 local function fresh()
   cc.reset()
   for _, m in ipairs(MODULES) do package.loaded[m] = nil end
@@ -14,6 +14,7 @@ end
 
 local passed, failed = 0, 0
 local function test(name, fn)
+  if _G.ONLY and not name:find(_G.ONLY) then return end -- nur ausgewaehlte Tests: lua5.2 -e 'ONLY="Worker"' tests/run.lua
   fresh()
   -- in einer Koroutine, weil CC-Code zwischendurch os.pullEvent aufruft (z.B. die Wegsuche zum Durchatmen)
   local co = coroutine.create(fn)
@@ -274,7 +275,7 @@ test("P0.6: Manifeste passen zum Repository", function()
     for l in io.lines(file) do if not l:match("^%s*#") and l ~= "" then t[#t + 1] = l end end
     return t
   end
-  for _, role in ipairs({ "turtle", "miner", "gps", "gateway" }) do
+  for _, role in ipairs({ "turtle", "miner", "gps", "gateway", "central" }) do
     for _, name in ipairs(lines("manifests/" .. role .. ".txt")) do
       assert(io.open(name), role .. ": Datei fehlt im Repository: " .. name)
     end
@@ -354,6 +355,7 @@ dofile("tests/mq_tests.lua")
 dofile("tests/gateway_tests.lua")
 dofile("tests/sync_tests.lua")
 dofile("tests/sign_tests.lua")
+dofile("tests/job_tests.lua")
 
 say(("\n%d ok, %d fehlgeschlagen"):format(passed, failed))
 os.exit(failed == 0 and 0 or 1)

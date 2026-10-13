@@ -21,3 +21,5 @@ setdepot.lua
 goto.lua
 gpsfix.lua
 zone.lua
+jobrunner.lua
+worker.lua
