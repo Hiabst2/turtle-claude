@@ -141,7 +141,17 @@ local function refillGear()
   end
   if #missing == 0 then return nil end
   local p, h = nav.pos(), nav.home()
-  if p.x ~= h.x or p.y ~= h.y or p.z ~= h.z then return nil end -- die Toolbox gibt es nur daheim
+  if p.x ~= h.x or p.y ~= h.y or p.z ~= h.z then
+    -- die Toolbox steht unter dem Heimplatz: erst heimfliegen (geht auch ohne Modem)
+    M.say("Mir fehlt " .. table.concat(missing, ", ") .. ", fliege heim zur Toolbox.")
+    sync.setJob("Ausruestung holen")
+    local ok, err = nav.goHome()
+    sync.setJob(nil)
+    if not ok then
+      M.say("Heimweg gescheitert: " .. tostring(err))
+      return false
+    end
+  end
   local ok, text = gear.take(missing)
   M.say(ok and ("Ausruestung geholt: " .. table.concat(missing, ", ")) or tostring(text))
   return ok

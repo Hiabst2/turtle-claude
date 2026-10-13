@@ -412,3 +412,22 @@ test("Worker: fehlende Ausruestung holt er sich daheim aus der Toolbox", functio
   eq(r, "ausgeruestet")
   eq(table.concat(asked, ","), "geo_scanner,minecraft:chest")
 end)
+
+test("Worker: fehlt Ausruestung und er ist nicht daheim, fliegt er erst heim zur Toolbox", function()
+  local w = world()
+  local runner, done = realTurtle(w)
+  local nav = require("nav")
+  nav.setHome({ x = 730, y = 40, z = 640, f = 0 }) -- steht woanders als daheim
+  turtle.getItemDetail = function() return nil end -- gar nichts dabei, nicht einmal das Modem
+  local gear = require("gear")
+  local takenAt
+  gear.take = function(items)
+    local p = nav.pos()
+    takenAt = ("%d %d %d"):format(p.x, p.y, p.z)
+    return true, "ok"
+  end
+  local r = runner.step()
+  done()
+  eq(r, "ausgeruestet")
+  eq(takenAt, "730 40 640", "erst daheim aus der Toolbox genommen")
+end)
