@@ -205,7 +205,7 @@ local function realTurtle(w)
   local wrap = peripheral.wrap
   peripheral.wrap = function(side) if side == "left" then return {} end end
   local runner = require("jobrunner")
-  runner.say = function() end
+  runner.setPrinter(function() end)
   runner.init()
   return runner, function()
     peripheral.wrap = wrap
@@ -231,8 +231,8 @@ test("Worker: echte Turtle holt sich einen Auftrag und arbeitet ihn ab", functio
   assert(j.result:find("^Fertig"), j.result)
   eq(j.worker, 7, "Turtle-ID (os.getComputerID der Attrappe, siehe tests/cc.lua)")
   local p = require("nav").pos()
-  -- am Ende zurueck am Startpunkt: dort hat sie die Zwischenkiste wieder eingepackt
-  eq(p.x, 710) eq(p.z, 610, "zurueck bei der Zwischenkiste")
+  -- Worker fahren nach dem Auftrag heim (vorher Zwischenkiste eingepackt)
+  eq(p.x, 705) eq(p.z, 605, "wieder daheim")
   eq(runner.state().job, nil, "Worker wieder frei")
 end)
 
@@ -599,4 +599,48 @@ test("Worker: Status zeigt, wenn unter dem Heimplatz keine Toolbox ist", functio
   local status = table.concat(runner.status(), " | ")
   done()
   assert(status:find("keine Kiste unter dem Heimplatz"), status)
+end)
+
+test("Worker: Tunnel-Auftrag endet daheim, nicht unter der Erde", function()
+  local w = world()
+  local job = w.jobs:create({ type = "tunnel", params = { length = 3, width = 1, height = 1,
+    start = { x = 710, y = 40, z = 610, f = 0 } } }, "t")
+  local runner, done = realTurtle(w)
+  for _ = 1, 8 do
+    sim.advance(16000)
+    runner.step()
+    if w.jobs.state.jobs[job.id].state == "complete" then break end
+  end
+  done()
+  local p, h = require("nav").pos(), require("nav").home()
+  eq(w.jobs.state.jobs[job.id].state, "complete")
+  eq(("%d %d %d"):format(p.x, p.y, p.z), ("%d %d %d"):format(h.x, h.y, h.z), "wieder daheim")
+  eq(runner.state().lastStart.z, 610, "Einstieg gemerkt")
+end)
+
+test("Worker: kommt er nicht nach oben, faehrt er erst zum letzten Einstieg", function()
+  local w = world()
+  local runner, done = realTurtle(w)
+  local nav, gear = require("nav"), require("gear")
+  turtle.getItemDetail = function(slot)
+    if slot == 2 then return { name = "computercraft:wireless_modem_advanced", count = 1 } end
+  end
+  runner.state().lastStart = { x = 712, y = 40, z = 612 }
+  nav.goTo(712, 40, 618, "xzy", false) -- im Tunnel, 6 Bloecke hinter dem Einstieg
+  local goHome = nav.goHome
+  local calls = {}
+  nav.goHome = function()
+    local p = nav.pos()
+    calls[#calls + 1] = ("%d %d %d"):format(p.x, p.y, p.z)
+    if p.z == 618 then return false, "Weg nach oben blockiert: Darf hier nicht graben" end
+    return goHome()
+  end
+  gear.take = function() return true, "ok" end
+  local r = runner.step()
+  local status = table.concat(runner.status(), " | ")
+  done()
+  eq(calls[1], "712 40 618", "erst direkt versucht")
+  eq(calls[2], "712 40 612", "dann vom Einstieg aus")
+  eq(r, "ausgeruestet")
+  assert(status:find("Letzte Meldung"), status)
 end)

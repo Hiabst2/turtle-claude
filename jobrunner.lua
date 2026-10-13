@@ -27,8 +27,15 @@ local PATTERN = { modem = "modem", geo_scanner = "geo_scanner", chest = "minecra
   player_detector = "player_detector" }
 M.GEAR_RETRY = 600 -- Sekunden bis zum naechsten Versuch, fehlende Ausruestung zu holen
 M.TOOLBOX_STALE = 600 -- Sekunden: so alt darf das Wissen ueber die Toolbox sein, bevor nachgeschaut wird
-M.say = print
 M.now = function() return sync.now() end
+local lastSay -- letzte Meldung, bleibt auf dem Bildschirm stehen
+local printer = print
+M.say = function(text)
+  lastSay = tostring(text)
+  printer(text)
+end
+-- Tests und andere Aufrufer koennen die Ausgabe umlenken, die letzte Meldung bleibt trotzdem gespeichert
+function M.setPrinter(fn) printer = fn end
 
 local FILE = "/.worker"
 local state = store.load(FILE) or {}
@@ -43,6 +50,18 @@ function M.state() return state end
 local function atHome()
   local p, h = nav.pos(), nav.home()
   return p.x == h.x and p.y == h.y and p.z == h.z
+end
+
+-- Heimfliegen; klappt das nicht (z.B. unter der Erde, nach oben nur Fels ausserhalb der Zone), erst durch
+-- die eigenen Gaenge zum letzten Einstieg (Startpunkt des letzten Auftrags) und von dort heim
+local function goHomeSafe()
+  local ok, err = nav.goHome()
+  if ok or not state.lastStart then return ok, err end
+  local s = state.lastStart
+  M.say("Heimweg blockiert, fahre zuerst zum letzten Einstieg " .. s.x .. " " .. s.y .. " " .. s.z)
+  local ok2, err2 = nav.goTo(s.x, s.y, s.z, "yxz")
+  if not ok2 then return false, "auch der Weg zum Einstieg ist blockiert: " .. tostring(err2) end
+  return nav.goHome()
 end
 
 -- Toolbox unter dem Heimplatz anschauen und merken (geht nur daheim)
@@ -76,8 +95,11 @@ end
 local function takeFromHome(missing)
   if not atHome() then
     M.say("Hole " .. table.concat(missing, ", ") .. " aus der Toolbox daheim.")
-    local ok, err = nav.goHome()
-    if not ok then return false, "Heimweg gescheitert: " .. tostring(err) end
+    local ok, err = goHomeSafe()
+    if not ok then
+      M.say("Heimweg gescheitert: " .. tostring(err))
+      return false, "Heimweg gescheitert: " .. tostring(err)
+    end
   end
   noteToolbox()
   local patterns = {}
@@ -184,8 +206,12 @@ local function copyParams(p)
     if k ~= "start" then opts[k] = v end
   end
   opts.keep_gear = true -- Worker legen ihre Ausruestung nie in die Toolbox
+  -- Worker fahren nach jedem Mining-Auftrag zum Lager und heim, auch nach einem Tunnel:
+  -- sonst bleiben sie unter der Erde stecken und kommen ohne Zone nicht mehr nach oben
+  if opts.home == nil then opts.home = true end
   return opts
 end
+
 
 -- Leerlauf: Ausruestung pruefen.
 --   daheim:     Toolbox anschauen und fehlende Teile, die drin liegen, mitnehmen
@@ -248,6 +274,9 @@ local function runJob(job)
     local ok, err = nav.travel(p.start.x, p.start.y, p.start.z)
     if not ok then return "Gestoppt: Anfahrt gescheitert: " .. tostring(err) end
     nav.face(p.start.f or 0)
+    -- Einstieg merken: von hier kommt die Turtle sicher wieder nach oben
+    state.lastStart = { x = p.start.x, y = p.start.y, z = p.start.z }
+    save()
   end
   if job.type == "orehunt" or job.type == "stripmine" or job.type == "tunnel" then
     return mine.run(mine[job.type], copyParams(p), M.say)
@@ -314,9 +343,12 @@ function M.step()
     local target = nav.FUEL_TARGET
     nav.FUEL_TARGET = math.max(target, wanted + 100)
     local ok = pcall(function()
-      assert(nav.goDepot())
+      if not nav.goDepot() then -- vielleicht unter der Erde: erst zum Einstieg
+        assert(goHomeSafe())
+        assert(nav.goDepot())
+      end
       nav.unload()
-      assert(nav.goHome())
+      assert(goHomeSafe())
     end)
     nav.FUEL_TARGET = target
     sync.setJob(nil)
@@ -363,6 +395,7 @@ function M.status()
     lines[#lines + 1] = "Toolbox daheim: noch nie angeschaut"
   end
   lines[#lines + 1] = "Fuel: " .. tostring(nav.fuel())
+  if lastSay then lines[#lines + 1] = "Letzte Meldung: " .. lastSay end
   lines[#lines + 1] = nav.where()
   lines[#lines + 1] = sync.describe()
   return lines
