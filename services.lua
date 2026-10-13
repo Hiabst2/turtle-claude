@@ -33,17 +33,18 @@ function M.new(node, opts)
     return node:send(target, topic, payload, sendOpts)
   end
 
+  local function owner(topic)
+    for _, rule in ipairs(M.OWNER) do
+      if (topic or ""):sub(1, #rule.prefix) == rule.prefix then return host.byName[rule.service] end
+    end
+  end
+
+  -- an den adressierten Dienst; kennt der das Topic nicht, an den Dienst, dem das Topic gehoert
   function host.dispatch(msg)
     local service = host.byName[msg.target]
-    if not service then
-      for _, rule in ipairs(M.OWNER) do
-        if (msg.topic or ""):sub(1, #rule.prefix) == rule.prefix then
-          service = host.byName[rule.service]
-          break
-        end
-      end
-    end
-    if service then service:handle(msg) end
+    if service and service:handle(msg) ~= false then return end
+    local fallback = owner(msg.topic)
+    if fallback and fallback ~= service then fallback:handle(msg) end
   end
 
   local lastBeat

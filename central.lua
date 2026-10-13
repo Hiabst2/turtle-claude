@@ -1,13 +1,17 @@
--- central: Zentrale mit Job-Dienst (spaeter auch map, path). Computer mit Wireless/Ender Modem in einem
+-- central: Zentrale mit Job-, Map- und Path-Dienst. Computer mit Wireless/Ender Modem in einem
 -- dauerhaft geladenen Chunk. Oben Status, unten eine Eingabezeile fuer Auftraege:
 --   add orehunt x=725 y=40 z=630 f=nord rounds=2 area=700,0,600,750,60,650 prio=5
 --   add stripmine x=.. y=.. z=.. f=ost length=40 branch=8
 --   add tunnel x=.. y=.. z=.. f=sued length=20 width=3 height=3
 --   add goto x=.. y=.. z=..      add gohome
 --   list        cancel J3        help
+--   zone add mine1 700 0 600 750 60 650     zone del mine1     zone maxy 50     zone list
+--   place depot 740 64 615 nord             place home Miner1 730 70 640 ost   place del depot
 local mq = require("mq")
 local services = require("services")
 local jobsvc = require("jobsvc")
+local mapsvc = require("mapsvc")
+local pathsvc = require("pathsvc")
 
 local modem = peripheral.find("modem", function(_, m) return m.isWireless() end)
 if not modem then printError("Kein Wireless/Ender Modem angeschlossen.") return end
@@ -16,6 +20,9 @@ local node = mq.new({ link = mq.modemLink(modem) })
 local host = services.new(node, { label = os.getComputerLabel() or "Zentrale" })
 local jobs = jobsvc.new(host)
 host.add("job", jobs)
+local map = mapsvc.new(host)
+host.add("map", map)
+host.add("path", pathsvc.new(host))
 host.heartbeat(true)
 
 local w, h = term.getSize()
@@ -30,6 +37,10 @@ local function draw()
   top.setTextColor(colors.yellow)
   top.write(("Zentrale #%d  Outbox %d  Jobs"):format(node.id, node:pending()))
   local y = 2
+  top.setTextColor(colors.lightGray)
+  for _, line in ipairs(map:statusLines()) do
+    top.setCursorPos(1, y) top.write(line:sub(1, w)) y = y + 1
+  end
   top.setTextColor(colors.white)
   for _, line in ipairs(jobs:statusLines()) do
     if y > h - 6 then break end
@@ -37,8 +48,11 @@ local function draw()
   end
   top.setTextColor(colors.gray)
   y = math.max(y, h - 6)
-  for i = 1, math.min(#jobs.log, h - 2 - y) do
-    top.setCursorPos(1, y) top.write(jobs.log[i]:sub(1, w)) y = y + 1
+  local log = {}
+  for _, l in ipairs(jobs.log) do log[#log + 1] = l end
+  for _, l in ipairs(map.log) do log[#log + 1] = l end
+  for i = 1, math.min(#log, h - 2 - y) do
+    top.setCursorPos(1, y) top.write(log[i]:sub(1, w)) y = y + 1
   end
   top.setTextColor(colors.lightBlue)
   top.setCursorPos(1, h - 2) top.write(message:sub(1, w))
@@ -87,8 +101,28 @@ local function command(line)
     return r.error or (r.id .. ": " .. r.state)
   elseif cmd == "list" then
     return #jobs:statusLines() .. " aktuelle Auftraege (siehe oben)"
+  elseif cmd == "zone" then
+    local sub = words[2]
+    local ok, err
+    if sub == "add" then ok, err = map:addZone(words[3], words[4], words[5], words[6], words[7], words[8], words[9])
+    elseif sub == "del" then ok, err = map:deleteZone(words[3])
+    elseif sub == "maxy" then ok, err = map:setMaxY(words[3])
+    else
+      local names = {}
+      for _, z in ipairs(map.state.zones) do names[#names + 1] = z.name end
+      return "Zonen: " .. (#names > 0 and table.concat(names, ", ") or "keine") .. ", Hoehenlimit Y " .. map.state.maxY
+    end
+    return ok and ("Karte Stand " .. map.state.rev .. ", die Turtles uebernehmen sie beim naechsten Sync") or err
+  elseif cmd == "place" then
+    local sub = words[2]
+    local ok, err
+    if sub == "del" then ok, err = map:deletePlace(words[3])
+    elseif sub == "home" then ok, err = map:setPlace("home:" .. tostring(words[3]), words[4], words[5], words[6], FACING[words[7]] or words[7])
+    elseif sub then ok, err = map:setPlace(sub, words[3], words[4], words[5], FACING[words[6]] or words[6])
+    else return "place depot x y z richtung | place home <Turtle> x y z richtung | place del <name>" end
+    return ok and ("Karte Stand " .. map.state.rev) or err
   else
-    return "add <orehunt|stripmine|tunnel|goto|gohome> x= y= z= f= ... | list | cancel J1"
+    return "add ... | list | cancel J1 | zone add/del/maxy/list | place depot/home/del"
   end
 end
 

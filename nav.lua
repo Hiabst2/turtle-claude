@@ -5,6 +5,7 @@
 local zones = require("zones")
 local gear = require("gear")
 local store = require("store")
+local cost = require("cost")
 
 local M = {}
 
@@ -67,10 +68,7 @@ end
 -- Fuel fuer einen Weg, so wie travel() ihn fliegt: weite Wege gehen hoch auf Reisehoehe und wieder runter.
 -- (Die Funktion steht hier oben, weil sie nur rechnet; TRAVEL_Y wird weiter unten gesetzt.)
 function M.tripCost(from, to)
-  local horizontal = math.abs(from.x - to.x) + math.abs(from.z - to.z)
-  if horizontal <= 8 then return horizontal + math.abs(from.y - to.y) end
-  local ty = math.max(M.TRAVEL_Y, from.y)
-  return (ty - from.y) + horizontal + math.abs(ty - to.y)
+  return cost.trip(from, to, M.TRAVEL_Y) -- dieselbe Formel wie Job- und Path-Dienst
 end
 
 function M.dist(a, b)

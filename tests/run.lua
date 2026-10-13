@@ -3,7 +3,7 @@ package.path = "./?.lua;./tests/?.lua;" .. package.path
 local say = function(s) io.write(s, "\n") end -- print ist durch die CC-Attrappe belegt
 local cc = require("cc")
 
-local MODULES = { "store", "zones", "gear", "nav", "path", "mine", "colony", "mq", "version", "broker", "sync", "crypto", "services", "jobsvc", "jobrunner" }
+local MODULES = { "store", "zones", "gear", "nav", "path", "mine", "colony", "mq", "version", "broker", "sync", "crypto", "services", "jobsvc", "jobrunner", "cost", "mapsvc", "pathsvc" }
 local function fresh()
   cc.reset()
   for _, m in ipairs(MODULES) do package.loaded[m] = nil end

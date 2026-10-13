@@ -4,9 +4,12 @@ version.lua
 bootstrap.lua
 startup.lua
 store.lua
+cost.lua
 crypto.lua
 mq.lua
 services.lua
 jobsvc.lua
+mapsvc.lua
+pathsvc.lua
 central.lua
 mqtail.lua

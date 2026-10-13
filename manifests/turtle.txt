@@ -4,6 +4,7 @@ version.lua
 bootstrap.lua
 startup.lua
 store.lua
+cost.lua
 crypto.lua
 mq.lua
 sync.lua

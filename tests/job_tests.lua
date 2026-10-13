@@ -11,7 +11,10 @@ local function world(o)
   local host = require("services").new(centralNode, { label = "Zentrale" })
   local jobs = require("jobsvc").new(host, { dir = "/central" })
   host.add("job", jobs)
-  local w = { net = net, gw = gw, broker = broker, host = host, jobs = jobs }
+  local map = require("mapsvc").new(host, { dir = "/central" })
+  host.add("map", map)
+  host.add("path", require("pathsvc").new(host))
+  local w = { net = net, gw = gw, broker = broker, host = host, jobs = jobs, map = map }
   function w.step(n)
     for _ = 1, n or 3 do
       broker:step(0)
@@ -36,7 +39,8 @@ local function world(o)
       for i = #wk.got, 1, -1 do if wk.got[i].topic == topic then return wk.got[i].payload end end
     end
     function wk.say(topic, payload)
-      node:send("job", topic, payload)
+      local svc = topic:match("^(%a+)%.")
+      node:send((svc == "map" or svc == "path") and svc or "job", topic, payload)
       node:flush()
       w.step()
       wk.read()
@@ -191,6 +195,7 @@ local function realTurtle(w)
     if slot == 2 then return { name = "computercraft:wireless_modem_advanced", count = 1 } end
   end
   turtle.getEquippedRight = function() return nil end
+  turtle.getFuelLevel = function() return 20000 end
   local wrap = peripheral.wrap
   peripheral.wrap = function(side) if side == "left" then return {} end end
   local runner = require("jobrunner")
@@ -199,6 +204,7 @@ local function realTurtle(w)
   return runner, function()
     peripheral.wrap = wrap
     turtle.getItemDetail = function() return nil end
+    turtle.getFuelLevel = function() return 1000 end
   end
 end
 
@@ -259,4 +265,110 @@ end)
 test("Worker: Abbruch mitten im Tunnel stoppt sofort", function()
   local p = cancelWhen(function(j) return j.progress and j.progress:find("tunnel 5/") end)
   assert(p.z >= 614 and p.z <= 620, "sollte kurz nach Meter 5 stehen, steht bei z=" .. p.z)
+end)
+
+-- P3.2: Kosten, Map- und Path-Dienst ------------------------------------------
+test("Kosten: eine Formel fuer Turtle, Job- und Path-Dienst", function()
+  local cost = require("cost")
+  local nav = require("nav")
+  nav.TRAVEL_Y = 110
+  local a, b = { x = 0, y = 20, z = 0 }, { x = 100, y = 64, z = 50 }
+  eq(cost.trip(a, b, 110), nav.tripCost(a, b))
+  eq(cost.trip(a, { x = 3, y = 20, z = 4 }, 110), 7, "kurzer Weg direkt")
+  assert(cost.jobBudget("tunnel", { length = 10, width = 3, height = 3 }) > 30)
+  local need = cost.need({ type = "tunnel", params = { length = 10, start = b } },
+    { pos = a, depot = { x = 0, y = 64, z = 0 } }, 110)
+  eq(need, cost.RESERVE + cost.jobBudget("tunnel", { length = 10 }) + cost.trip(a, b, 110)
+    + cost.trip(b, { x = 0, y = 64, z = 0 }, 110))
+end)
+
+test("Jobs: zu wenig Fuel -> Auftrag geht an einen anderen Worker", function()
+  local w = world()
+  local job = w.jobs:create({ type = "tunnel", params = { length = 50, start = { x = 300, y = 40, z = 0 } } }, "t")
+  local poor = w.worker(5)
+  poor.node:send("job", "worker.idle", { role = "miner", gear = {}, pos = { x = 0, y = 40, z = 0 }, fuel = 300 })
+  poor.node:flush()
+  w.step()
+  poor.read()
+  eq(poor.last("job.assign"), nil, "300 Fuel reichen nicht")
+  local rich = w.worker(6)
+  rich.node:send("job", "worker.idle", { role = "miner", gear = {}, pos = { x = 0, y = 40, z = 0 }, fuel = 20000 })
+  rich.node:flush()
+  w.step()
+  rich.read()
+  eq(rich.last("job.assign").id, job.id)
+end)
+
+test("Path-Dienst: Fuel-Schaetzung ueber TurtleMQ", function()
+  local w = world()
+  local asker = w.worker(9)
+  asker.say("path.estimate", { from = { x = 0, y = 20, z = 0 }, to = { x = 100, y = 64, z = 50 }, travel_y = 110 })
+  local r = asker.last("path.estimate.reply")
+  assert(r, "keine Antwort")
+  eq(r.fuel, require("cost").trip({ x = 0, y = 20, z = 0 }, { x = 100, y = 64, z = 50 }, 110))
+end)
+
+test("Map: Zonen und Orte kommen bei der Turtle an, Loeschen auch", function()
+  local w = world()
+  local runner, done = realTurtle(w)
+  local zones = require("zones")
+  local nav = require("nav")
+  w.map:addZone("mine1", 700, 0, 600, 750, 60, 650)
+  w.map:setMaxY(55)
+  w.map:setPlace("depot", 740, 64, 615, 2)
+  w.map:setPlace("home:Miner1", 730, 70, 640, 3)
+  w.map:setPlace("home:Andere", 1, 2, 3, 0)
+  for _ = 1, 3 do sim.advance(16000) runner.step() end
+  eq(zones.rev(), w.map.state.rev, "Stand uebernommen")
+  eq(zones.check({ x = 720, y = 40, z = 620 }, "minecraft:stone", true), true, "in mine1")
+  eq(zones.check({ x = 790, y = 40, z = 620 }, "minecraft:stone", true), false, "lokale Testzone ist ersetzt")
+  eq(zones.check({ x = 720, y = 58, z = 620 }, "minecraft:stone", true), false, "Hoehenlimit 55")
+  eq(nav.depot().x, 740) eq(nav.depot().f, 2)
+  eq(nav.home().z, 640, "eigener Heimplatz") eq(nav.home().f, 3)
+  w.map:deleteZone("mine1")
+  for _ = 1, 3 do sim.advance(16000) runner.step() end
+  done()
+  eq(zones.check({ x = 720, y = 40, z = 620 }, "minecraft:stone", true), false, "Zone geloescht -> kein Graben")
+end)
+
+test("Map: ohne zentrale Zonen behaelt die Turtle ihre lokalen", function()
+  local w = world()
+  local runner, done = realTurtle(w)
+  for _ = 1, 3 do sim.advance(16000) runner.step() end
+  done()
+  local zones = require("zones")
+  eq(zones.rev(), 0)
+  eq(zones.check({ x = 720, y = 40, z = 620 }, "minecraft:stone", true), true, "lokale Zone gilt weiter")
+end)
+
+test("Map: gleicher Stand -> keine Antwort, kein unnoetiger Funk", function()
+  local w = world()
+  w.map:addZone("a", 0, 0, 0, 10, 10, 10)
+  local wk = w.worker(5)
+  wk.say("map.get", { rev = 0 })
+  assert(wk.last("map.data"), "neuer Stand muss kommen")
+  wk.got = {}
+  wk.say("map.get", { rev = w.map.state.rev })
+  eq(wk.last("map.data"), nil)
+end)
+
+test("Worker: zu wenig Fuel im Leerlauf -> faehrt selbst tanken, aber nicht dauernd", function()
+  local w = world()
+  local runner, done = realTurtle(w)
+  turtle.getFuelLevel = function() return 500 end
+  local nav = require("nav")
+  nav.setDepot({ x = 760, y = 40, z = 605, f = 0 })
+  local visited = false
+  local unload = nav.unload
+  nav.unload = function()
+    visited = nav.pos().x == 760
+    return unload()
+  end
+  local r1 = runner.step()
+  sim.advance(16000)
+  local r2 = runner.step()
+  done()
+  eq(r1, "getankt") eq(visited, true, "war am Lager")
+  eq(nav.pos().x, 705, "wieder daheim")
+  eq(r2, "leerlauf", "nicht sofort nochmal")
 end)

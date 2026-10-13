@@ -14,16 +14,19 @@ local nav = require("nav")
 local mine = require("mine")
 local gear = require("gear")
 local sync = require("sync")
+local zones = require("zones")
 
 local M = {}
 
 M.IDLE_INTERVAL = settings.get("worker.idle_interval", 15) -- Sekunden zwischen zwei Leerlauf-Syncs
+M.MIN_FUEL = settings.get("worker.min_fuel", 1000) -- darunter faehrt der Worker im Leerlauf tanken
+M.REFUEL_RETRY = 600 -- Sekunden bis zum naechsten Tankversuch, wenn es nicht geklappt hat
 M.say = print
 M.now = function() return sync.now() end
 
 local FILE = "/.worker"
 local state = store.load(FILE) or {}
-local lastIdle
+local lastIdle, lastRefuel
 
 local function save() store.save(FILE, state) end
 
@@ -42,8 +45,10 @@ local function only(n, topic)
   n:drop(function(m) return m.topic == topic end)
 end
 
--- bei jedem Sync: angenommenen Auftrag melden, Fortschritt oder "frei"
+-- bei jedem Sync: Stand der zentralen Karte erfragen, angenommenen Auftrag melden, Fortschritt oder "frei"
 local function hook(n)
+  only(n, "map.get")
+  n:send("map", "map.get", { rev = zones.rev() }, { ttl = 120 })
   local job = state.job
   if job and job.result == nil and not job.stop then
     if not job.accepted then
@@ -57,18 +62,34 @@ local function hook(n)
   elseif not job and not state.paused then
     only(n, "worker.idle")
     local p, fuel = nav.pos(), nav.fuel()
+    local d = nav.depot()
     n:send("job", "worker.idle", {
       role = settings.get("claude.role", "miner"),
       gear = M.gearInfo(),
       pos = { x = p.x, y = p.y, z = p.z },
       fuel = fuel == math.huge and 1000000 or fuel,
+      depot = d and { x = d.x, y = d.y, z = d.z } or nil,
+      travel_y = nav.TRAVEL_Y,
     }, { ttl = 120 })
   end
 end
 
+-- neuer Stand vom Map-Dienst: Zonen ersetzen, Lagerplatz und eigenen Heimplatz uebernehmen
+local function applyMap(p)
+  if (tonumber(p.rev) or 0) <= zones.rev() then return end
+  zones.replace(p.zones, p.maxY, p.rev)
+  local places = type(p.places) == "table" and p.places or {}
+  if places.depot then nav.setDepot(places.depot) end
+  local mine = os.getComputerLabel() and places["home:" .. os.getComputerLabel()]
+  if mine then nav.setHome(mine) end
+  M.say(("Karte Stand %d uebernommen: %d Zonen"):format(p.rev, #(p.zones or {})))
+end
+
 local function onMessage(msg)
   local p = type(msg.payload) == "table" and msg.payload or {}
-  if msg.topic == "job.assign" then
+  if msg.topic == "map.data" then
+    applyMap(p)
+  elseif msg.topic == "job.assign" then
     local job = state.job
     if job then
       if job.id == p.id then
@@ -171,6 +192,20 @@ function M.step()
     return success and "fertig" or "fehlgeschlagen"
   end
   local now = M.now()
+  -- zu wenig Fuel fuer Auftraege: selbst zum Lager fahren und tanken (dort wird auch ausgeladen)
+  if not state.paused and nav.fuel() < M.MIN_FUEL
+    and (not lastRefuel or now - lastRefuel >= M.REFUEL_RETRY * 1000) then
+    lastRefuel = now
+    sync.setJob("tanken")
+    local ok = pcall(function()
+      assert(nav.goDepot())
+      nav.unload()
+      assert(nav.goHome())
+    end)
+    sync.setJob(nil)
+    pcall(sync.run)
+    return ok and "getankt" or "tanken gescheitert"
+  end
   if not state.paused and (not lastIdle or now - lastIdle >= M.IDLE_INTERVAL * 1000) then
     lastIdle = now
     pcall(sync.run)

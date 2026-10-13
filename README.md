@@ -126,6 +126,20 @@ cancel J3
 - Aufträge mit überlappendem Bereich (`area`) laufen nie gleichzeitig
 - nach 3 Fehlschlägen ist ein Auftrag endgültig gescheitert
 - Worker: `P` pausiert (keine neuen Aufträge), `Q` zurück zur Shell
+- Aufträge bekommt nur, wer genug Fuel für Anfahrt, Arbeit und den Weg zum Lager hat (`cost.lua`);
+  ein Worker unter `worker.min_fuel` (Standard 1000) fährt im Leerlauf selbst zum Lager tanken
+
+Zonen und Orte pflegt die Zentrale (Map-Dienst) und verteilt sie bei jedem Sync an die Turtles.
+Jede Turtle prüft weiterhin jeden Block selbst mit ihrer Kopie. Solange die Zentrale keine Zonen hat,
+gelten die lokalen.
+
+```
+zone add mine1 700 0 600 750 60 650     zone del mine1     zone maxy 50     zone list
+place depot 740 64 615 nord             place home Miner1 730 70 640 ost   place del depot
+```
+
+`depot` ist der gemeinsame Lagerplatz aller Turtles, `home <Name>` der Heimplatz einer Turtle
+(Blickrichtung = wohin die Turtle auf dem Platz schaut).
 
 ## Entwicklung
 

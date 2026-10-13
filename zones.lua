@@ -107,8 +107,30 @@ function M.format(z)
   return ("%s: x %d..%d, y %d..%d, z %d..%d"):format(z.name, z.x1, z.x2, z.y1, z.y2, z.z1, z.z2)
 end
 
+-- Stand der Zentrale (Map-Dienst) uebernehmen. Ab dann gilt dieser Stand; lokale Aenderungen werden
+-- beim naechsten Abgleich ueberschrieben. Geprueft wird weiterhin hier auf der Turtle (check).
+function M.replace(zoneList, maxY, rev)
+  local list = {}
+  for _, z in ipairs(zoneList or {}) do
+    list[#list + 1] = {
+      name = z.name,
+      x1 = math.min(z.x1, z.x2), x2 = math.max(z.x1, z.x2),
+      y1 = math.min(z.y1, z.y2), y2 = math.max(z.y1, z.y2),
+      z1 = math.min(z.z1, z.z2), z2 = math.max(z.z1, z.z2),
+    }
+  end
+  data.zones = list
+  data.maxY = tonumber(maxY) or data.maxY
+  data.rev = rev
+  save()
+end
+
+-- Version des zentralen Stands (0 = Zonen werden nur lokal gepflegt)
+function M.rev() return data.rev or 0 end
+
 function M.describe()
   local lines = { "Hoehenlimit: Y " .. data.maxY }
+  if data.rev then lines[#lines + 1] = ("Zentral verwaltet (Stand %d), lokale Aenderungen werden ueberschrieben"):format(data.rev) end
   if #data.zones == 0 then
     lines[#lines + 1] = "Keine Mining-Zonen, die Turtle graebt nirgends."
   end

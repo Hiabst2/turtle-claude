@@ -13,6 +13,7 @@
 -- Der Dienst kennt keinen Funk: er bekommt Nachrichten ueber handle(msg) und schickt ueber host.send.
 
 local store = require("store")
+local cost = require("cost")
 
 local M = {}
 
@@ -88,6 +89,10 @@ function Service:canDo(job, worker)
   local gear = type(worker.gear) == "table" and worker.gear or {}
   for _, need in ipairs(job.requires or {}) do
     if not gear[need] then return false end
+  end
+  -- genug Fuel fuer Anfahrt, Arbeit und den Weg zum Lager? (gleiche Formel wie Turtle und Path-Dienst)
+  if tonumber(worker.fuel) and tonumber(worker.fuel) < cost.need(job, worker, tonumber(worker.travel_y)) then
+    return false
   end
   return true
 end
