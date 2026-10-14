@@ -1288,3 +1288,81 @@ test("Worker: Funk weg und wieder da landet mit Hoehe im Meldungsprotokoll", fun
   eq(n, 1, "nur einmal 'weg', nicht bei jedem Versuch")
   assert(log:find("Funk wieder da bei Y=40 nach %d+s, 2 Versuche ohne Antwort"), log)
 end)
+
+test("Worker: funkt auch unterwegs auf langen Wegen (Heartbeat reisst nicht ab)", function()
+  local w = world()
+  local job = w.jobs:create({ type = "goto", params = { x = 1005, y = 40, z = 605 } }, "test") -- 300 Bloecke weit
+  local runner, done = realTurtle(w)
+  local sync, nav = require("sync"), require("nav")
+  nav.calibrate = function() return true end
+  -- jeder Block dauert eine halbe Sekunde
+  local f, u, d = turtle.forward, turtle.up, turtle.down
+  local function slow(fn) return function(...) sim.advance(500) return fn(...) end end
+  turtle.forward, turtle.up, turtle.down = slow(f), slow(u), slow(d)
+  local run, during = sync.run, 0
+  sync.run = function(...)
+    local x = nav.pos().x
+    if x > 705 and x < 1005 then during = during + 1 end -- mitten auf der Strecke
+    return run(...)
+  end
+  for _ = 1, 6 do
+    sim.advance(16000)
+    runner.step()
+    if w.jobs.state.jobs[job.id].state == "complete" then break end
+  end
+  sync.run = run
+  turtle.forward, turtle.up, turtle.down = f, u, d
+  done()
+  eq(w.jobs.state.jobs[job.id].state, "complete")
+  assert(during >= 2, "unterwegs gefunkt: " .. during .. "x")
+end)
+
+test("Szenario: Abbruch auf dem Rueckweg - Zentrale bekommt trotzdem, was bis dahin abgebaut wurde", function()
+  local w = world()
+  w.map:addZone("mine", 715, 0, 615, 735, 100, 635)
+  w.map:setMaxY(100)
+  local job = w.jobs:create({ type = "orehunt", params = { rounds = 1, radius = 6,
+    start = { x = 725, y = 80, z = 625, f = 2 } } }, "test")
+  local ores = { ["727 16 627"] = "minecraft:iron_ore", ["722 15 623"] = "minecraft:iron_ore" }
+  local real = { x = 705, y = 71, z = 605, f = 0 }
+  local inv = { [1] = { name = "minecraft:diamond_pickaxe", count = 1 }, [2] = { name = "minecraft:chest", count = 1 },
+    [3] = { name = "advancedperipherals:geo_scanner", count = 1 } }
+  local bw, undo = blockWorld(real, inv, 70, ores)
+  local ok, err = pcall(function()
+    local runner, done = realTurtle(w, { pos = { x = 705, y = 71, z = 605, f = 0 },
+      home = { x = 705, y = 71, z = 605, f = 0 }, gps = true })
+    turtle.getItemDetail = function(s) local i = inv[s] return i and { name = i.name, count = i.count } end
+    turtle.getEquippedRight = function() return { name = "computercraft:wireless_modem_advanced" } end
+    turtle.getFuelLevel = function() return 20000 end
+    peripheral.wrap = function(side)
+      local l = bw.left()
+      if side == "left" and l and l.name:find("geo_scanner") then return bw.scanner() end
+    end
+    -- war die Turtle unten und faehrt wieder hoch, wird abgebrochen; jeder Block dauert 2 s (Funk unterwegs)
+    local up, wasDeep, cancelled = turtle.up, false, false
+    turtle.up = function()
+      if real.y < 20 then wasDeep = true end
+      if wasDeep and real.y > 40 and not cancelled then
+        cancelled = true
+        w.jobs:cancel(job.id)
+      end
+      sim.advance(2000)
+      return up()
+    end
+    for _ = 1, 20 do
+      sim.advance(16000)
+      runner.step()
+      local j = w.jobs.state.jobs[job.id]
+      if j.result then break end
+    end
+    turtle.up = up
+    done()
+    local j = w.jobs.state.jobs[job.id]
+    assert(cancelled, "Abbruch nie ausgeloest")
+    eq(j.state, "cancelled")
+    assert(j.result and j.result:find("Bisher Abgebaut", 1, true), tostring(j.result))
+    assert(j.result:find("iron_ore x2", 1, true), j.result)
+  end)
+  undo()
+  assert(ok, err)
+end)

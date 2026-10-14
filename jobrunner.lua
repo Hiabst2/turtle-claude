@@ -74,6 +74,7 @@ end
 
 -- beim Start die Karte einmal komplett holen (rev 0), damit Lager- und Heimplatz frisch uebernommen werden
 local mapFresh = false
+local placesSkipped = false -- Karte kam vor dem GPS: Orte nicht uebernommen, nach dem Einmessen neu holen
 
 -- Heimfliegen; klappt das nicht (z.B. unter der Erde, nach oben nur Fels ausserhalb der Zone), erst durch
 -- die eigenen Gaenge zum letzten Einstieg (Startpunkt des letzten Auftrags) und von dort heim
@@ -176,6 +177,7 @@ local function applyMap(p)
   if (tonumber(p.rev) or 0) > zones.rev() then zones.replace(p.zones, p.maxY, p.rev) end
   local places = type(p.places) == "table" and p.places or {}
   -- Orte sind Weltkoordinaten: nur mit GPS uebernehmen, sonst wuerde die Turtle in die falsche Richtung fahren
+  placesSkipped = not nav.hasGps()
   if nav.hasGps() then
     if places.depot then nav.setDepot(places.depot) end
     local mine = os.getComputerLabel() and places["home:" .. os.getComputerLabel()]
@@ -249,6 +251,9 @@ function M.init()
   sync.addHook(hook)
   sync.onMessage = onMessage
   sync.log = function(text) pcall(logLine, text) end -- Funk weg/wieder da ins Meldungsprotokoll (diag log)
+  -- auch unterwegs funken (Schacht, lange Wege, Fahrt zum Lager), hoechstens einmal je Sync-Intervall;
+  -- sonst gilt die Turtle auf langen Strecken ohne Mining-Schritt beim Gateway als verschollen
+  nav.onMove = function() sync.maybe() end
 end
 
 local function copyParams(p)
@@ -382,6 +387,9 @@ end
 -- Position und Blickrichtung per GPS einmessen (wie gpsfix)
 local function calibrate(reason)
   local ok, res, err = pcall(nav.calibrate)
+  if ok and res and placesSkipped then
+    mapFresh, placesSkipped = false, false -- Orte kamen vor dem GPS an: Karte nochmal komplett holen
+  end
   if ok and res then
     M.say("GPS eingemessen (" .. reason .. "): " .. nav.where())
   else
@@ -429,7 +437,10 @@ function M.step()
     else
       local ok, r = pcall(runJob, job)
       res = ok and r or ("Gestoppt: " .. tostring(r))
-      if job.stop then res = "Gestoppt: " .. job.stop end
+      if job.stop then
+        local soFar = tostring(res):match("\n(Bisher [^\n]+)") -- Zwischenergebnis behalten
+        res = "Gestoppt: " .. job.stop .. (soFar and ("\n" .. soFar) or "")
+      end
     end
     job.result = res
     save()

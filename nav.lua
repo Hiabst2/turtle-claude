@@ -178,10 +178,19 @@ end
 
 -- Bewegung --------------------------------------------------------------
 
+-- wird nach jedem Block Bewegung aufgerufen (der Worker funkt hier, wenn das Sync-Intervall um ist)
+M.onMove = nil
+local inMove = false
+
 local function moved(dx, dy, dz)
   local p = state.pos
   p.x, p.y, p.z = p.x + dx, p.y + dy, p.z + dz
   save()
+  if M.onMove and not inMove then
+    inMove = true
+    pcall(M.onMove)
+    inMove = false
+  end
 end
 
 local function go(move, dir, attack, dig, onOk)

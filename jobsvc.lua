@@ -249,6 +249,15 @@ function Service:handle(msg)
   elseif topic == "job.accept" or topic == "job.progress" or topic == "job.complete" or topic == "job.fail" then
     local job = self.state.jobs[p.id]
     local current = job and job.worker == msg.source and job.epoch == p.epoch and ACTIVE[job.state]
+    if not current and job and job.state == "cancelled" and job.worker == msg.source and job.epoch == p.epoch
+      and (topic == "job.complete" or topic == "job.fail") and not job.result then
+      -- abgebrochener Auftrag: das Ergebnis der Turtle (was bis dahin abgebaut wurde) trotzdem behalten
+      job.result = tostring(p.result or p.reason or "")
+      job.updated_at = now
+      self:note(job.id .. " abgebrochen, Ergebnis der Turtle gespeichert")
+      self:save()
+      return true
+    end
     if not current then
       -- doppelte Abschlussmeldung oder alter Besitzer: abschliessende Meldungen einfach ignorieren,
       -- laufende Arbeit dagegen stoppen

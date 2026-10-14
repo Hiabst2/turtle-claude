@@ -72,6 +72,9 @@ function M.new(opts)
     local text
     if m.topic == "job.complete" then
       text = ("Auftrag %s fertig (%s): %s"):format(tostring(p.id), label(m.source), tostring(p.result or ""))
+    elseif m.topic == "job.fail" and tostring(p.reason):find("abgebrochen", 1, true) then
+      text = ("Auftrag %s abgebrochen (%s): %s"):format(tostring(p.id), label(m.source),
+        (tostring(p.reason):gsub("^Gestoppt: abgebrochen[^\n]*\n?", "")))
     elseif m.topic == "job.fail" then
       text = ("Auftrag %s: %s meldet Problem: %s%s"):format(tostring(p.id), label(m.source), tostring(p.reason or "?"),
         p.retry and " (wird erneut versucht)" or "")

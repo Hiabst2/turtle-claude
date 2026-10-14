@@ -178,7 +178,9 @@ local function newCtx(say, junk, savedStart)
   -- Hauptachse = Blickrichtung beim Start; zurueck geht es erst quer, dann laengs
   local main = start.f % 2 == 0 and "z" or "x"
   local perp = main == "z" and "x" or "z"
-  return { start = start, order = perp .. main .. "y", ores = {}, say = say or function() end, junk = junk ~= false }
+  local ctx = { start = start, order = perp .. main .. "y", ores = {}, say = say or function() end, junk = junk ~= false }
+  M.current = M.current or ctx -- der Auftrag, der gerade laeuft (fuer das Zwischenergebnis bei Abbruch)
+  return ctx
 end
 
 -- Ausruestung, die beim Minen nicht gebraucht wird, in die Zwischenkiste legen (drop = turtle.drop/dropDown)
@@ -536,7 +538,10 @@ end
 function M.run(job, opts, say)
   opts = opts or {}
   nav.stats.blocks = 0
+  M.current = nil
   local ok, res = pcall(job, opts, say)
+  local worked = M.current
+  M.current = nil
   M.clearJob()
   sync.setJob(nil)
   if ok then
@@ -545,6 +550,8 @@ function M.run(job, opts, say)
   end
 
   local msg = "Gestoppt: " .. tostring(res)
+  -- was bis hierher abgebaut wurde, geht sonst verloren (z.B. Abbruch auf dem Weg zum Lager)
+  if worked then msg = msg .. "\nBisher " .. summary(worked, {}):match("^[^\n]+") end
   -- bei Zonen- oder anderen Fehlern sicher heimfahren, bei "stop" stehen bleiben
   if res ~= "abgebrochen" and opts.start then
     local ctx = newCtx(say, true, opts.start)
