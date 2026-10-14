@@ -522,17 +522,21 @@ function M.calibrate()
   local wf
   if p2.x > p1.x then wf = 3 elseif p2.x < p1.x then wf = 1 elseif p2.z > p1.z then wf = 0 else wf = 2 end
 
-  -- Heimplatz aus dem alten System ins Weltsystem drehen und verschieben
   local p, h = state.pos, state.home
-  local k = (wf - p.f) % 4
-  local function convert(t)
-    local vx, vz = t.x - p.x, t.z - p.z
-    for _ = 1, k do vx, vz = -vz, vx end
-    return { x = p1.x + vx, y = p1.y + (t.y - p.y), z = p1.z + vz, f = (t.f + k) % 4 }
+  -- Nur beim ERSTEN Einmessen (bisher relative Koordinaten) Heim- und Lagerplatz ins Weltsystem umrechnen.
+  -- Hatte die Turtle schon GPS, sind beide Weltkoordinaten und bleiben, wie sie sind - auch wenn die
+  -- Turtle inzwischen woanders hingestellt wurde (sonst wuerden sie um diese Strecke mitverschoben).
+  if not state.gps then
+    local k = (wf - p.f) % 4
+    local function convert(t)
+      local vx, vz = t.x - p.x, t.z - p.z
+      for _ = 1, k do vx, vz = -vz, vx end
+      return { x = p1.x + vx, y = p1.y + (t.y - p.y), z = p1.z + vz, f = (t.f + k) % 4 }
+    end
+    -- nur einen wirklich gesetzten Heimplatz umrechnen; ein Platzhalter wuerde sonst zur Standort-Kopie
+    if M.homeKnown() then state.home = convert(h) end
+    if state.depot then state.depot = convert(state.depot) end
   end
-  -- nur einen wirklich gesetzten Heimplatz umrechnen; ein Platzhalter wuerde sonst zur Standort-Kopie
-  if M.homeKnown() then state.home = convert(h) end
-  if state.depot then state.depot = convert(state.depot) end
   p.x, p.y, p.z, p.f = p1.x, p1.y, p1.z, wf
   state.gps = true
   save()

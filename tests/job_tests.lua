@@ -756,3 +756,46 @@ test("Worker: holt beim Start Lager und Heimplatz frisch, auch ohne neuen Karten
   eq(nav.home().x, 730, "Heimplatz von der Zentrale uebernommen")
   eq(nav.home().f, 3)
 end)
+
+-- GPS-Einmessen mit nachgebildetem GPS: die Turtle steht wirklich bei real (x, y, z)
+local function withGps(real, fn)
+  local nav = require("nav")
+  _G.gps = { locate = function()
+    -- liefert die echte Position plus die Bewegung seit Beginn (fuer die Richtungsmessung)
+    local p = nav.pos()
+    return real.x + (p.x - real.sx), real.y + (p.y - real.sy), real.z + (p.z - real.sz)
+  end }
+  local getType, call = peripheral.getType, peripheral.call
+  peripheral.getType = function(side) if side == "right" then return "modem" end end
+  peripheral.call = function(side, m) if side == "right" and m == "isWireless" then return true end end
+  local ok, err = pcall(fn)
+  peripheral.getType, peripheral.call = getType, call
+  _G.gps = nil
+  assert(ok, err)
+end
+
+test("Nav: Turtle mit GPS woanders hingestellt -> Heim- und Lagerplatz bleiben, wo sie sind", function()
+  -- gespeichert: stand bei 700 70 600, Heimplatz 705 70 600 (Weltkoordinaten)
+  require("store").save("/.nav", { pos = { x = 700, y = 70, z = 600, f = 0 },
+    home = { x = 705, y = 70, z = 600, f = 2 }, depot = { x = 740, y = 64, z = 615, f = 2 }, gps = true })
+  local nav = require("nav")
+  -- wirklich steht sie jetzt 30 Bloecke hoeher und woanders
+  withGps({ x = 650, y = 100, z = 580, sx = 700, sy = 70, sz = 600 }, function()
+    assert(nav.calibrate())
+  end)
+  local p, h, d = nav.pos(), nav.home(), nav.depot()
+  eq(("%d %d %d"):format(p.x, p.y, p.z), "650 100 580", "Position neu gemessen")
+  eq(("%d %d %d %d"):format(h.x, h.y, h.z, h.f), "705 70 600 2", "Heimplatz unveraendert")
+  eq(("%d %d %d"):format(d.x, d.y, d.z), "740 64 615", "Lager unveraendert")
+end)
+
+test("Nav: erstes Einmessen (bisher relativ) rechnet einen gesetzten Heimplatz um", function()
+  require("store").save("/.nav", { pos = { x = 0, y = 0, z = 0, f = 0 },
+    home = { x = 0, y = 0, z = -2, f = 0 }, gps = false }) -- Heimplatz 2 Bloecke hinter dem Start
+  local nav = require("nav")
+  withGps({ x = 500, y = 64, z = 500, sx = 0, sy = 0, sz = 0 }, function()
+    assert(nav.calibrate())
+  end)
+  local h = nav.home()
+  eq(("%d %d %d"):format(h.x, h.y, h.z), "500 64 498", "relativ -> Welt umgerechnet")
+end)
