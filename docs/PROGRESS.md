@@ -18,6 +18,7 @@ Grundlage ist das Whitepaper/Lastenheft „cc:claude v2“ (Draft 0.2). Wird bei
 | P3.4 | Großer Test im Spiel | **läuft** | Fixes ab `73f2f05` |
 
 Tests ohne Minecraft: `sh tests/test.sh` (Lua 5.2, CC-Attrappen, simuliertes Funknetz mit Verlust/Duplikaten).
+Szenario-Tests (`Szenario: ...` in `tests/job_tests.lua`): Turtle mit **wirklicher** Position in einer nachgebildeten Welt, echtes GPS, Zentrale, Neustarts und Versetzen – prüfen, wo sie wirklich landet und wo sie unterwegs war.
 
 ## Geräte und Rollen
 
@@ -61,7 +62,8 @@ Tests ohne Minecraft: `sh tests/test.sh` (Lua 5.2, CC-Attrappen, simuliertes Fun
 | Turtle fährt in die falsche Richtung | Position/Blickrichtung verloren (z.B. versetzt) | GPS-Einmessen beim Start + Kontrolle, Orte nur mit GPS (`e1eed33`) |
 | „Heimweg gescheitert: über dem Höhenlimit“, obwohl oben frei | kurze Wege (< 9 Blöcke) fuhren direkt seitwärts und wollten durch eine Wand graben | versperrter kurzer Weg → über die Reisehöhe; Meldung nennt Ort und Block (`3f5dd04`) |
 | Heimplatz = Stelle, an der die Turtle hingestellt wurde | Platzhalter-Heimplatz einer neuen Turtle wurde beim GPS-Einmessen zu Weltkoordinaten; Orte der Zentrale bei gleichem Kartenstand nicht neu übernommen | Heimplatz gilt erst nach sethome/place home; Einmessen rechnet nur gesetzte um; Worker holt Orte beim Start frisch (`587ac8e`) |
-| Heimplatz 30 Blöcke unter dem Start | Turtle mit GPS wurde versetzt; beim Einmessen wurde der schon absolute Heimplatz um die Versatz-Strecke mitverschoben | Heim-/Lagerplatz nur beim ersten Einmessen (vorher relativ) umrechnen (dieser Checkpoint) |
+| Heimplatz 30 Blöcke unter dem Start | Turtle mit GPS wurde versetzt; beim Einmessen wurde der schon absolute Heimplatz um die Versatz-Strecke mitverschoben | Heim-/Lagerplatz nur beim ersten Einmessen (vorher relativ) umrechnen (`cfe1c88`) |
+| derselbe Fehler nach dem Fix | falscher Heimplatz stand noch in der Turtle; beim Start flog sie dorthin, **bevor** der richtige von der Zentrale ankam. Neue Turtle: Heimplatz kam spaeter, nächster Versuch erst nach 10 min | erst Karte holen (`full`, auch bei Stand 0), dann fahren; neuer Heimplatz → sofort hin und Toolbox neu anschauen. Szenario-Tests mit nachgebildeter Welt (dieser Checkpoint) |
 
 ## Offen / Nächste Schritte
 

@@ -168,8 +168,10 @@ test("Jobs: Abbruch erreicht den Worker, Zustand ueberlebt Neustart", function()
 end)
 
 -- Teil B: echte Turtle mit Worker-Dienst ---------------------------------------
-local function realTurtle(w)
-  require("store").save("/.nav", { pos = { x = 705, y = 40, z = 605, f = 0 }, home = { x = 705, y = 40, z = 605, f = 0 }, gps = true })
+local function realTurtle(w, navState)
+  if navState ~= false then
+    require("store").save("/.nav", navState or { pos = { x = 705, y = 40, z = 605, f = 0 }, home = { x = 705, y = 40, z = 605, f = 0 }, gps = true })
+  end
   require("zones").add("z", 700, 0, 600, 800, 100, 700)
   settings.values["mq.enabled"] = true
   settings.values["claude.role"] = "miner"
@@ -798,4 +800,152 @@ test("Nav: erstes Einmessen (bisher relativ) rechnet einen gesetzten Heimplatz u
   end)
   local h = nav.home()
   eq(("%d %d %d"):format(h.x, h.y, h.z), "500 64 498", "relativ -> Welt umgerechnet")
+end)
+
+-- ===== Szenario-Tests: echte Turtle im Spiel nachgebildet =====
+-- Die Welt kennt die WIRKLICHE Position der Turtle (real). Bewegungen aendern sie, GPS meldet sie.
+-- Die Turtle selbst kennt nur, was in /.nav steht. Dateien ueberleben Abbauen/Hinstellen/Neustart.
+-- Richtungen: 0 Sued (+z), 1 West (-x), 2 Nord (-z), 3 Ost (+x)
+local WDX, WDZ = { [0] = 0, [1] = -1, [2] = 0, [3] = 1 }, { [0] = 1, [1] = 0, [2] = -1, [3] = 0 }
+
+local function physical(real)
+  local saved = {}
+  for _, k in ipairs({ "forward", "back", "up", "down", "turnLeft", "turnRight" }) do saved[k] = turtle[k] end
+  turtle.forward = function() real.x, real.z = real.x + WDX[real.f], real.z + WDZ[real.f] return true end
+  turtle.back = function() real.x, real.z = real.x - WDX[real.f], real.z - WDZ[real.f] return true end
+  -- jede besuchte Stelle merken (real.visited["x y z"] = true)
+  real.visited = real.visited or {}
+  local function mark() real.visited[("%d %d %d"):format(real.x, real.y, real.z)] = true end
+  local fwd, bck = turtle.forward, turtle.back
+  turtle.forward = function() fwd() mark() return true end
+  turtle.back = function() bck() mark() return true end
+  turtle.up = function() real.y = real.y + 1 mark() return true end
+  turtle.down = function() real.y = real.y - 1 mark() return true end
+  turtle.turnRight = function() real.f = (real.f + 1) % 4 return true end
+  turtle.turnLeft = function() real.f = (real.f + 3) % 4 return true end
+  _G.gps = { locate = function() return real.x, real.y, real.z end }
+  local getType, call = peripheral.getType, peripheral.call
+  peripheral.getType = function(side) if side == "right" then return "modem" end end
+  peripheral.call = function(side, m) if side == "right" and m == "isWireless" then return true end end
+  return function()
+    for k, f in pairs(saved) do turtle[k] = f end
+    peripheral.getType, peripheral.call = getType, call
+    _G.gps = nil
+  end
+end
+
+-- Turtle (neu) starten: Programme frisch laden wie nach einem Neustart, dann n Runden worker
+local function boot(w, n)
+  for _, m in ipairs({ "nav", "jobrunner", "mine", "path", "gear", "sync" }) do package.loaded[m] = nil end
+  local runner, done = realTurtle(w, false)
+  -- wie im Spiel: nur Spitzhacke und Modem fest ausgeruestet, Scanner und Kiste liegen in der Toolbox
+  turtle.getItemDetail = function() return nil end
+  for _ = 1, n or 6 do sim.advance(16000) runner.step() end
+  done()
+  return require("nav"), runner
+end
+
+local function at(t) return ("%d %d %d"):format(t.x, t.y, t.z) end
+
+local function scenario(name, o)
+  test("Szenario: " .. name, function()
+    local w = world()
+    w.map:addZone("z", 0, 0, 0, 1000, 100, 1000)
+    if o.before then o.before(w) end
+    if o.central then w.map:setPlace("home:Miner1", o.central.x, o.central.y, o.central.z, o.central.f) end
+    if o.nav then require("store").save("/.nav", o.nav) end
+    local real = o.real
+    local undo = physical(real)
+    local ok, err = pcall(function()
+      local nav, runner = boot(w)
+      local status = table.concat(runner.status(), " | ")
+      eq(at(nav.home()), at(o.home), "gespeicherter Heimplatz | " .. status)
+      eq(at(real), at(o.home), "Turtle steht wirklich daheim | " .. status)
+      eq(at(nav.pos()), at(real), "gedachte = wirkliche Position")
+      eq(nav.pos().f, real.f, "gedachte = wirkliche Blickrichtung")
+      if o.never then assert(not real.visited[at(o.never)], "war beim falschen Heimplatz " .. at(o.never)) end
+      if o.after then o.after(w, real, nav) end
+    end)
+    undo()
+    assert(ok, err)
+  end)
+end
+
+local HOME = { x = 705, y = 70, z = 600, f = 2 }
+
+scenario("neu hingestellt, Zentrale kennt den Heimplatz -> fliegt heim", {
+  central = HOME,
+  real = { x = 650, y = 90, z = 580, f = 1 },
+  home = HOME,
+})
+
+scenario("mit GPS woanders (30 hoeher) hingestellt, Heimplatz gespeichert -> fliegt heim", {
+  nav = { pos = { x = 705, y = 70, z = 600, f = 2 }, home = HOME, gps = true, homeSet = true },
+  real = { x = 650, y = 100, z = 580, f = 3 },
+  home = HOME,
+})
+
+scenario("mit GPS woanders hingestellt, Zentrale hat denselben Heimplatz", {
+  central = HOME,
+  nav = { pos = { x = 705, y = 70, z = 600, f = 2 }, home = HOME, gps = true, homeSet = true },
+  real = { x = 650, y = 100, z = 580, f = 0 },
+  home = HOME,
+})
+
+scenario("falscher Heimplatz aus altem Fehler gespeichert, Zentrale hat den richtigen", {
+  central = HOME,
+  nav = { pos = { x = 650, y = 100, z = 580, f = 0 }, home = { x = 705, y = 40, z = 600, f = 2 }, gps = true,
+    homeSet = true },
+  real = { x = 650, y = 100, z = 580, f = 0 },
+  home = HOME,
+  never = { x = 705, y = 40, z = 600 }, -- nicht erst zum alten Heimplatz fliegen
+})
+
+scenario("alte Datei ohne GPS: daheim sethome, dann woanders hingestellt -> erstes Einmessen", {
+  -- ohne GPS kann die Turtle nach dem Versetzen nicht wissen, wo sie ist: der Heimplatz gilt relativ zur
+  -- gedachten Position. Hier wurde sie nicht versetzt, nur gedreht gespeichert (relativ f 0 = wirklich West).
+  nav = { pos = { x = 0, y = 0, z = 0, f = 0 }, home = { x = 0, y = 0, z = 0, f = 0 }, gps = false },
+  real = { x = 705, y = 70, z = 600, f = 1 },
+  home = { x = 705, y = 70, z = 600, f = 1 },
+})
+
+scenario("zweimal neu gestartet, dazwischen versetzt -> Heimplatz wandert nicht", {
+  central = HOME,
+  real = { x = 650, y = 90, z = 580, f = 1 },
+  home = HOME,
+  after = function(w, real)
+    real.x, real.y, real.z, real.f = 600, 100, 550, 3 -- abgebaut und woanders hingestellt
+    local nav = boot(w)
+    eq(at(nav.home()), at(HOME), "nach 2. Start")
+    eq(at(real), at(HOME), "wieder heimgeflogen")
+    real.y = real.y + 30 -- nochmal versetzt, diesmal ohne Neustart: GPS-Kontrolle im Leerlauf
+    local runner = require("jobrunner")
+    local undo2 = select(2, realTurtle(w, false)) -- nur die Attrappen, Module bleiben geladen
+    sim.advance((runner.GPS_CHECK + 1) * 1000)
+    for _ = 1, 4 do sim.advance(16000) runner.step() end
+    undo2()
+    eq(at(nav.home()), at(HOME), "nach GPS-Kontrolle")
+  end,
+})
+
+test("Szenario: Zentrale setzt den Heimplatz erst, waehrend die Turtle schon laeuft", function()
+  local w = world()
+  w.map:addZone("z", 0, 0, 0, 1000, 100, 1000)
+  local real = { x = 650, y = 90, z = 580, f = 1 }
+  local undo = physical(real)
+  local ok, err = pcall(function()
+    local nav = boot(w, 4)
+    eq(nav.homeKnown(), false, "noch kein Heimplatz")
+    w.map:setPlace("home:Miner1", HOME.x, HOME.y, HOME.z, HOME.f)
+    local runner = require("jobrunner")
+    local undo2 = select(2, realTurtle(w, false))
+    turtle.getItemDetail = function() return nil end
+    -- Kartenstand neu -> kommt beim naechsten Sync; dann soll sie gleich heim, nicht erst in 10 min
+    for _ = 1, 6 do sim.advance(16000) runner.step() end
+    undo2()
+    eq(at(nav.home()), at(HOME))
+    eq(at(real), at(HOME), "heimgeflogen")
+  end)
+  undo()
+  assert(ok, err)
 end)

@@ -123,7 +123,7 @@ end
 -- bei jedem Sync: Stand der zentralen Karte erfragen, angenommenen Auftrag melden, Fortschritt oder "frei"
 local function hook(n)
   only(n, "map.get")
-  n:send("map", "map.get", { rev = mapFresh and zones.rev() or 0 }, { ttl = 120 })
+  n:send("map", "map.get", { rev = mapFresh and zones.rev() or 0, full = not mapFresh or nil }, { ttl = 120 })
   local job = state.job
   if job and job.result == nil and not job.stop then
     if not job.accepted then
@@ -162,7 +162,17 @@ local function applyMap(p)
   if nav.hasGps() then
     if places.depot then nav.setDepot(places.depot) end
     local mine = os.getComputerLabel() and places["home:" .. os.getComputerLabel()]
-    if mine then nav.setHome(mine) end
+    if mine then
+      local h = nav.home()
+      local changed = not nav.homeKnown() or h.x ~= mine.x or h.y ~= mine.y or h.z ~= mine.z
+      nav.setHome(mine)
+      -- neuer Heimplatz: die Toolbox dort ist unbekannt, gleich hinfliegen und nachschauen
+      if changed then
+        state.toolbox, state.toolboxAt, state.toolboxMissing = nil, nil, nil
+        save()
+        lastLook, gearCheckSoon = nil, true
+      end
+    end
   end
   M.say(("Karte Stand %d uebernommen: %d Zonen"):format(p.rev, #(p.zones or {})))
   if not nav.hasGps() and next(places) then
@@ -334,6 +344,17 @@ function M.step()
     calibrated = true
     lastGpsCheck = M.now()
     calibrate("Start") -- nach Abbauen, Verschieben oder Absturz stimmt die Blickrichtung sonst evtl. nicht
+  end
+  -- Vor der ersten Fahrt Heim- und Lagerplatz von der Zentrale holen: sonst fliegt die Turtle erst zu
+  -- einem alten, evtl. falschen Heimplatz aus ihrer Datei und bekommt den richtigen erst danach.
+  -- (ohne Modem geht das nicht: dann zuerst mit dem gespeicherten Heimplatz das Modem holen)
+  if not mapFresh and gear.has("modem") then
+    local now = M.now()
+    if not lastIdle or now - lastIdle >= M.IDLE_INTERVAL * 1000 then
+      lastIdle = now
+      pcall(sync.run)
+    end
+    if not mapFresh then return "warte auf Karte" end
   end
   local job = state.job
   if job and job.result == nil and not job.stop then

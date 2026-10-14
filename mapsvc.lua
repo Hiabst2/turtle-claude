@@ -93,7 +93,8 @@ function Service:handle(msg)
   local topic = msg.topic
   local ok, err
   if topic == "map.get" then
-    if (tonumber(p.rev) or 0) < self.state.rev then
+    -- full: Turtle startet neu und will die Orte auf jeden Fall (auch bei leerer Karte, Stand 0)
+    if p.full or (tonumber(p.rev) or 0) < self.state.rev then
       self.host.send(msg.source, "map.data", self:data(), { reply_to = msg.id })
     end
     return true
