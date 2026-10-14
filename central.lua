@@ -71,7 +71,8 @@ end
 
 local FACING = { sued = 0, west = 1, nord = 2, ost = 3 }
 
--- "add orehunt x=1 y=2 z=3 f=nord rounds=2 area=..." -> job.create-Payload
+-- "add orehunt x=1 y=2 z=3 f=nord rounds=2 level=16 layers=2 area=..." -> job.create-Payload
+-- (orehunt: x/z = Einstieg, level = Abbauhoehe, Standard 16)
 local function parseAdd(words)
   local p = { type = words[2], params = {} }
   local start = {}

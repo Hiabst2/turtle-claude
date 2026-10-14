@@ -465,6 +465,7 @@ end
 function M.orehunt(opts, say)
   local rounds = clamp(opts.rounds, 1, 16, 4)
   local radius = clamp(opts.radius, 2, 16, 8)
+  local layers = clamp(opts.layers, 1, 8, 1) -- Schichten untereinander, je 2 x radius tiefer
   local ctx = newCtx(say, opts.drop_junk, opts.start)
   local fwd = ctx.start.f
   opts.start = ctx.start
@@ -487,14 +488,16 @@ function M.orehunt(opts, say)
   local spacing = 2 * radius
   local function nextCenter()
     local p, best, bestD = nav.pos(), nil, nil
-    for i = -rounds, rounds do
-      for j = -rounds, rounds do
-        local c = { x = ctx.start.x + i * spacing, y = ctx.start.y, z = ctx.start.z + j * spacing }
-        local k = path.key(c.x, c.y, c.z)
-        if not opts.scanned[k] and not opts.unreachable[k] and zones.check(c, nil, nav.hasGps()) then
-          -- naeher an der Turtle zuerst, bei Gleichstand naeher am Start
-          local d = nav.dist(p, c) * 1000 + nav.dist(ctx.start, c)
-          if not bestD or d < bestD then best, bestD = c, d end
+    for l = 0, layers - 1 do
+      for i = -rounds, rounds do
+        for j = -rounds, rounds do
+          local c = { x = ctx.start.x + i * spacing, y = ctx.start.y - l * spacing, z = ctx.start.z + j * spacing }
+          local k = path.key(c.x, c.y, c.z)
+          if not opts.scanned[k] and not opts.unreachable[k] and zones.check(c, nil, nav.hasGps()) then
+            -- naeher an der Turtle zuerst, bei Gleichstand naeher am Start
+            local d = nav.dist(p, c) * 1000 + nav.dist(ctx.start, c)
+            if not bestD or d < bestD then best, bestD = c, d end
+          end
         end
       end
     end

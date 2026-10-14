@@ -33,6 +33,7 @@ Szenario-Tests (`Szenario: ...` in `tests/job_tests.lua`): Turtle mit **wirklich
 
 ## Wichtige Entscheidungen
 
+- **Erzjagd:** Startpunkt ist nur der Einstieg; gescannt wird auf der Abbauhöhe `level` (Standard Y 16), optional mehrere Schichten (`layers`).
 - **Sicherheit lokal:** Jede Turtle prüft jeden Block selbst (Zonen, Höhenlimit, geschützte Blöcke), auch wenn die Zonen zentral gepflegt werden.
 - **Steuern nur der Besitzer**, fragen darf jeder. Zonen/Höhenlimit/Orte per Chat nur nach „ja“ des Besitzers – geprüft im Code, nicht von Claude.
 - **TurtleMQ at-least-once:** speichern → ACK → verarbeiten; Doppelte über die id erkannt. ACK pro Strecke (`hop`).
@@ -67,12 +68,13 @@ Szenario-Tests (`Szenario: ...` in `tests/job_tests.lua`): Turtle mit **wirklich
 | immer noch: Heimplatz falsch | **Tippfehler**: Turtle heißt `Hiabstz`, an der Zentrale stand `home:Hiabszt` → Heimplatz kam nie an, Turtle nutzte den alten (durch den Einmess-Fehler verschobenen) aus ihrer Datei | Herkunft sichtbar (`[von: ...]`, `/.homelog`, `diag`, `place list`) (`ce7f193`); Turtle meldet fehlenden/vertippten Heimplatz (`dbb2353`) |
 | "No tool" mit Spitzhacke im Inventar | Spitzhacke musste fest ausgerüstet sein | Spitzhacke zählt als Ausrüstung (dabei, im Inventar oder Toolbox), wird selbst angelegt (Seite ohne Modem) (dieser Checkpoint) |
 | Zwischenkiste fehlte / stand im Schacht | Kiste wurde am Einstieg unten abgestellt, Fehler beim Abstellen still ignoriert | Worker senkt sich ohne Graben bis zum Boden, stellt die Kiste **neben** den Schacht an die Oberfläche, holt sie am Ende wieder; geht das nicht, unten – und klappt auch das nicht, stoppt der Auftrag mit Grund (`44a634c`) |
-| Erzjagd bringt fast nichts (J18: 13 Kohle) | Erzjagd scannt auf der Höhe des Startpunkts; die Leitstelle setzte ihn an die Oberfläche (Y 80), Scan reicht nur ±8 | Diagnose: Meldungsprotokoll `/.worklog` in `diag`, `show J1` und Zonen mit Koordinaten an der Zentrale (dieser Checkpoint). Abbauhöhe: Konzept offen |
+| Erzjagd bringt fast nichts (J18: 13 Kohle) | Erzjagd scannt auf der Höhe des Startpunkts; die Leitstelle setzte ihn an die Oberfläche (Y 80), Scan reicht nur ±8 | Diagnose: Meldungsprotokoll `/.worklog` in `diag`, `show J1` und Zonen mit Koordinaten an der Zentrale (`6c79cf3`). Erzjagd: Startpunkt = nur Einstieg, gescannt wird auf `level` (Standard Y 16, auf Zone/Höhenlimit begrenzt), `layers` für Schichten darunter; Leitstelle kennt Erz-Höhen (dieser Checkpoint) |
 
 **Lehre:** erst Zustand im Spiel sichtbar machen (diag), dann fixen – nicht raten.
 
 ## Offen / Nächste Schritte
 
 - P3.4 abschließen: Miner holt Ausrüstung, nimmt J1 (Erzjagd) an, arbeitet, lädt aus, meldet fertig
+- Pathing ausbauen (Wunsch aus dem Spieltest); Regel bleibt: gegraben wird nur in Mining-Zonen (einzige Ausnahme: die eigene Zwischenkiste)
 - danach laut Roadmap: P4 Scout-System, P5 WorldMap, P6/P7 Server + PostgreSQL, …
 - All-in-one-Turtle (`claude.lua`, Rolle `turtle`) entfernen, sobald nicht mehr gebraucht

@@ -978,7 +978,8 @@ test("Worker: Tippfehler im Namen an der Zentrale wird angezeigt", function()
 end)
 
 -- Klotzwelt: unter Y 70 Stein, darueber Luft; Turtle mit echtem Inventar, Ausruestung und Kisten
-local function blockWorld(real, inv, ground)
+local function blockWorld(real, inv, ground, ores)
+  ores = ores or {}
   local placed, dug, chests = {}, {}, {}
   local left, right = nil, { name = "computercraft:wireless_modem_advanced" }
   local sel = 1
@@ -987,6 +988,7 @@ local function blockWorld(real, inv, ground)
     local k = key(x, y, z)
     if placed[k] then return placed[k] end
     if dug[k] then return nil end
+    if ores[k] then return ores[k] end
     if y <= ground then return "minecraft:stone" end
   end
   local function at(dir)
@@ -997,7 +999,20 @@ local function blockWorld(real, inv, ground)
   local function freeSlot() for s = 1, 16 do if not inv[s] then return s end end end
   local saved = {}
   for k, f in pairs(turtle) do saved[k] = f end
-  local w = { placed = placed, chests = chests, inv = inv }
+  local w = { placed = placed, chests = chests, inv = inv, dug = dug }
+  -- Geo Scanner: alle Bloecke in der Kugel, relativ zur Turtle (wie Advanced Peripherals)
+  function w.scanner()
+    return { scan = function(r)
+      local list = {}
+      for dx = -r, r do for dy = -r, r do for dz = -r, r do
+        if dx * dx + dy * dy + dz * dz <= r * r then
+          local n = blockAt(real.x + dx, real.y + dy, real.z + dz)
+          if n then list[#list + 1] = { name = n, x = dx, y = dy, z = dz, tags = {} } end
+        end
+      end end end
+      return list
+    end }
+  end
   function w.left() return left end
   local undoPhys = physical(real)
   local function mover(dir, move)
@@ -1126,4 +1141,52 @@ test("Worker: Meldungen landen im Protokoll fuer diag", function()
   local log = cc.readFile(runner.WORKLOG)
   assert(log:find("Meldung 35 / zweite Zeile", 1, true), log)
   assert(not log:find("Meldung 5 /", 1, true), "nur die letzten 30")
+end)
+
+test("Szenario: Erzjagd scannt auf der Abbauhoehe, nicht an der Oberflaeche, und graebt nur in der Zone", function()
+  local w = world()
+  w.map:addZone("mine", 715, 0, 615, 735, 100, 635) -- schmal: pro Schicht nur ein Bereich
+  w.map:setMaxY(100)
+  local job = w.jobs:create({ type = "orehunt", params = { rounds = 2, radius = 6, layers = 2,
+    start = { x = 725, y = 80, z = 625, f = 2 } } }, "test") -- Startpunkt wie von der Leitstelle: Oberflaeche
+  local ores = { ["727 16 627"] = "minecraft:iron_ore", ["727 17 627"] = "minecraft:iron_ore",
+    ["722 15 623"] = "minecraft:iron_ore", ["727 68 627"] = "minecraft:coal_ore",
+    ["725 3 625"] = "minecraft:iron_ore" } -- zweite Schicht: 12 tiefer
+  local real = { x = 705, y = 71, z = 605, f = 0 }
+  local inv = { [1] = { name = "minecraft:diamond_pickaxe", count = 1 }, [2] = { name = "minecraft:chest", count = 1 },
+    [3] = { name = "advancedperipherals:geo_scanner", count = 1 } }
+  local bw, undo = blockWorld(real, inv, 70, ores)
+  local ok, err = pcall(function()
+    local runner, done = realTurtle(w, { pos = { x = 705, y = 71, z = 605, f = 0 },
+      home = { x = 705, y = 71, z = 605, f = 0 }, gps = true })
+    turtle.getItemDetail = function(s) local i = inv[s] return i and { name = i.name, count = i.count } end
+    turtle.getEquippedRight = function() return { name = "computercraft:wireless_modem_advanced" } end
+    turtle.getFuelLevel = function() return 20000 end
+    peripheral.wrap = function(side)
+      local l = bw.left()
+      if side == "left" and l and l.name:find("geo_scanner") then return bw.scanner() end
+    end
+    for _ = 1, 20 do
+      sim.advance(16000)
+      runner.step()
+      local st = w.jobs.state.jobs[job.id].state
+      if st == "complete" or st == "failed" then break end
+    end
+    local log = cc.readFile(runner.WORKLOG) or ""
+    done()
+    local j = w.jobs.state.jobs[job.id]
+    eq(j.state, "complete", tostring(j.result or j.reason) .. " | " .. log)
+    assert(j.result:find("iron_ore x4", 1, true), j.result)
+    assert(not j.result:find("coal", 1, true), "Kohle an der Oberflaeche liegen gelassen: " .. j.result)
+    for k in pairs(bw.dug) do
+      local x, y, z = k:match("^(%S+) (%S+) (%S+)$")
+      x, y, z = tonumber(x), tonumber(y), tonumber(z)
+      local inZone = x >= 715 and x <= 735 and z >= 615 and z <= 635 and y >= 0 and y <= 100
+      assert(inZone, "ausserhalb der Zone gegraben: " .. k)
+    end
+    eq(next(bw.chests), nil, "Kiste wieder eingepackt")
+    eq(("%d %d %d"):format(real.x, real.y, real.z), "705 71 605", "wieder daheim")
+  end)
+  undo()
+  assert(ok, err)
 end)

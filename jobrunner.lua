@@ -27,6 +27,7 @@ local PATTERN = { modem = "modem", pickaxe = "pickaxe", geo_scanner = "geo_scann
   player_detector = "player_detector" }
 M.GEAR_RETRY = 600 -- Sekunden bis zum naechsten Versuch, fehlende Ausruestung zu holen
 M.TOOLBOX_STALE = 600 -- Sekunden: so alt darf das Wissen ueber die Toolbox sein, bevor nachgeschaut wird
+M.ORE_LEVEL = settings.get("worker.ore_level", 16) -- Standard-Abbauhoehe der Erzjagd (Eisen, Gold, Redstone ...)
 M.GPS_CHECK = 600 -- Sekunden zwischen zwei Positionskontrollen per GPS im Leerlauf
 M.now = function() return sync.now() end
 local lastSay -- letzte Meldung, bleibt auf dem Bildschirm stehen
@@ -326,6 +327,19 @@ local function runJob(job)
   end
   if p.start then
     local s = p.start
+    -- Erzjagd: der Startpunkt ist nur der Einstieg (x, z); gescannt wird auf der Abbauhoehe level,
+    -- begrenzt auf die Zone und das Hoehenlimit. Der Schacht geht vom Boden senkrecht hinunter.
+    local target = s
+    if job.type == "orehunt" then
+      local lo, hi = zones.columnRange(s.x, s.z)
+      if not lo then return ("Gestoppt: Einstieg %d %d liegt in keiner Mining-Zone"):format(s.x, s.z) end
+      local want = math.floor(tonumber(p.level) or M.ORE_LEVEL)
+      local level = math.max(lo, math.min(hi, want))
+      if level ~= want then
+        M.say(("Abbauhoehe Y %d statt Y %d (Zone reicht von Y %d bis %d)"):format(level, want, lo, hi))
+      end
+      target = { x = s.x, y = level, z = s.z, f = s.f }
+    end
     if mining and not job.chest then
       -- erst ohne Graben ueber dem Einstieg bis auf den Boden sinken: dort kommt die Zwischenkiste hin
       -- (neben den Schacht, nicht hinein), dann den Schacht hinunter
@@ -340,11 +354,11 @@ local function runJob(job)
         M.say("Zwischenkiste nicht an der Oberflaeche: " .. tostring(why) .. " - kommt an den Einstieg")
       end
     end
-    local ok, err = nav.travel(s.x, s.y, s.z)
+    local ok, err = nav.travel(target.x, target.y, target.z)
     if not ok then return "Gestoppt: Anfahrt gescheitert: " .. tostring(err) end
     nav.face(s.f or 0)
     -- Einstieg merken: von hier kommt die Turtle sicher wieder nach oben
-    state.lastStart = { x = p.start.x, y = p.start.y, z = p.start.z }
+    state.lastStart = { x = target.x, y = target.y, z = target.z }
     save()
   end
   if job.type == "orehunt" or job.type == "stripmine" or job.type == "tunnel" then

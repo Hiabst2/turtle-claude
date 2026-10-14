@@ -59,6 +59,21 @@ function M.check(pos, name, gps)
   return false, ("x=%d y=%d z=%d liegt in keiner Mining-Zone"):format(pos.x, pos.y, pos.z)
 end
 
+-- In welchem Hoehenbereich darf ueber/unter x, z gegraben werden? (Zonen und Hoehenlimit) -> lo, hi oder nil
+function M.columnRange(x, z)
+  local lo, hi
+  for _, zn in ipairs(data.zones) do
+    if x >= zn.x1 and x <= zn.x2 and z >= zn.z1 and z <= zn.z2 then
+      local top = math.min(zn.y2, data.maxY)
+      if top >= zn.y1 then
+        lo = lo and math.min(lo, zn.y1) or zn.y1
+        hi = hi and math.max(hi, top) or top
+      end
+    end
+  end
+  return lo, hi
+end
+
 function M.add(name, x1, y1, z1, x2, y2, z2)
   local v = { tonumber(x1), tonumber(y1), tonumber(z1), tonumber(x2), tonumber(y2), tonumber(z2) }
   for i = 1, 6 do

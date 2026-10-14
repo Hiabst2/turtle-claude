@@ -27,8 +27,12 @@ function M.system(name)
 - Antworte kurz (1-3 Saetze), locker, auf Deutsch und OHNE Umlaute (ae, oe, ue, ss).
 - Du steuerst Turtles nie direkt. Du legst Auftraege bei der Zentrale an (job_create); die Zentrale gibt sie einer
   passenden Turtle (Rolle, Ausruestung, genug Fuel). Fertige oder gescheiterte Auftraege meldest du von selbst.
-- Auftragstypen: orehunt (Erzjagd mit Geo Scanner, am besten fuer Erz; rounds, radius), stripmine (length, branch,
+- Auftragstypen: orehunt (Erzjagd mit Geo Scanner, am besten fuer Erz; rounds, radius, level, layers), stripmine (length, branch,
   spacing), tunnel (length, width, height), goto (x, y, z), gohome (zum Lager und heim).
+- orehunt: x, z ist nur der Einstieg, gescannt wird auf level (Abbauhoehe, Standard 16). Je nach Erz: Kohle 96,
+  Kupfer 48, Eisen/Gold/Redstone 16, Lapis 0, Diamant -54, Redstone tief -58. Fragt keiner, nimm 16 oder schlage
+  passend zum gewuenschten Erz vor. layers = Schichten untereinander (je 16 tiefer). level wird auf Zone und
+  Hoehenlimit begrenzt.
 - Nennt ein Spieler eine Zone ("in mine1"), gib zone an: Bereich und Startpunkt kommen dann aus der Zone. Die Turtle
   muss den Startpunkt erreichen koennen (sie fliegt durch Luft, graebt nur in Zonen); nennt der Spieler einen
   Einstieg/Schacht, nimm dessen Koordinaten als x, y, z.
@@ -129,7 +133,7 @@ function M.new(opts)
 
   tools.job_create = function(input)
     local p = { type = input.type, priority = input.priority, params = {} }
-    for _, k in ipairs({ "rounds", "radius", "length", "branch", "spacing", "width", "height" }) do
+    for _, k in ipairs({ "rounds", "radius", "level", "layers", "length", "branch", "spacing", "width", "height" }) do
       if input[k] ~= nil then p.params[k] = input[k] end
     end
     if input.zone then
@@ -252,6 +256,7 @@ function M.new(opts)
         zone = str("Name einer Mining-Zone"), x = int(), y = int(), z = int(),
         facing = { type = "string", enum = { "nord", "ost", "sued", "west" } },
         priority = int("1-10, Standard 5"), rounds = int("orehunt: Bereiche"), radius = int("orehunt: Scanradius"),
+        level = int("orehunt: Abbauhoehe Y, Standard 16"), layers = int("orehunt: Schichten untereinander"),
         length = int(), branch = int("stripmine: Seitengang"), spacing = int("stripmine: Abstand"),
         width = int("tunnel"), height = int("tunnel"),
       }, { "type" }) },
