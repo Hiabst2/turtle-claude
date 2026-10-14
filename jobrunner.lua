@@ -248,6 +248,7 @@ end
 function M.init()
   sync.addHook(hook)
   sync.onMessage = onMessage
+  sync.log = function(text) pcall(logLine, text) end -- Funk weg/wieder da ins Meldungsprotokoll (diag log)
 end
 
 local function copyParams(p)

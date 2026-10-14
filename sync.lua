@@ -30,6 +30,28 @@ local node, lastSync, job, registered = nil, nil, nil, false
 M.hooks = {}
 function M.addHook(fn) M.hooks[#M.hooks + 1] = fn end
 M.last = nil -- Ergebnis des letzten Syncs (fuer status)
+-- Funkprotokoll: bekommt Meldungen, wenn der Funk abreisst und wenn er wieder da ist (Worker -> /.worklog)
+M.log = nil
+local lost -- seit wann kein Kontakt: { at, y, tries, deepest }
+
+-- Funkkontakt auswerten: abgerissen / wieder da (mit Hoehe, damit man Reichweite und Pausen unterscheiden kann)
+local function noteReach(reached, why)
+  local y = nav.pos().y
+  if not reached then
+    if not lost then
+      lost = { at = M.now(), y = y, tries = 0, deepest = y }
+      if M.log then pcall(M.log, ("Funk weg bei Y=%d: %s"):format(y, why)) end
+    end
+    lost.tries = lost.tries + 1
+    lost.deepest = math.min(lost.deepest, y)
+  elseif lost then
+    if M.log then
+      pcall(M.log, ("Funk wieder da bei Y=%d nach %ds, %d Versuche ohne Antwort (tiefster Y=%d)"):format(y,
+        math.floor((M.now() - lost.at) / 1000), lost.tries, lost.deepest))
+    end
+    lost = nil
+  end
+end
 
 function M.enabled() return settings.get("mq.enabled", false) == true end
 function M.interval() return settings.get("mq.interval", 60) end
@@ -115,9 +137,12 @@ function M.run(request)
 
   if not ok then
     M.last = { ok = false, at = lastSync, text = "kein Sync: " .. tostring(res) }
+    noteReach(false, M.last.text)
     return false, M.last.text
   end
   if res.acked > 0 then registered = true end
+  noteReach(res.acked > 0 or res.received > 0 or res.done,
+    ("gesendet %d, keine Bestaetigung vom Gateway"):format(res.sent))
   M.last = {
     ok = true, at = lastSync,
     text = ("gesendet %d, bestaetigt %d, empfangen %d, offen %d"):format(res.sent, res.acked, handled, n:pending()),

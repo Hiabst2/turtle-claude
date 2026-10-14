@@ -1264,3 +1264,27 @@ test("Gear: Seiten nicht auslesbar -> Spitzhacke auf der Seite ohne Peripheral v
   turtle.getItemDetail = function() return nil end
   assert(ok, err)
 end)
+
+test("Worker: Funk weg und wieder da landet mit Hoehe im Meldungsprotokoll", function()
+  local w = world()
+  local runner, done = realTurtle(w)
+  local sync, nav = require("sync"), require("nav")
+  nav.calibrate = function() return true end
+  runner.step()
+  -- Funkloch: alles, was die Turtle sendet, verschwindet
+  local linkFor = sync.linkFor
+  local dead = { transmit = function() end, close = function() end }
+  dead.receive = function(t) sim.advance((t or 0) * 1000 + 1) return nil end
+  sync.linkFor = function() return dead end
+  local ok1 = sync.run()
+  sync.run()
+  sync.linkFor = linkFor
+  local ok2 = sync.run()
+  local log = cc.readFile(runner.WORKLOG) or ""
+  done()
+  eq(ok2, true)
+  assert(log:find("Funk weg bei Y=40", 1, true), log)
+  local _, n = log:gsub("Funk weg", "")
+  eq(n, 1, "nur einmal 'weg', nicht bei jedem Versuch")
+  assert(log:find("Funk wieder da bei Y=40 nach %d+s, 2 Versuche ohne Antwort"), log)
+end)
