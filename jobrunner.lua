@@ -165,9 +165,10 @@ local function applyMap(p)
     if mine then
       local h = nav.home()
       local changed = not nav.homeKnown() or h.x ~= mine.x or h.y ~= mine.y or h.z ~= mine.z
-      nav.setHome(mine)
+        or h.f ~= mine.f or nav.homeFrom() ~= "Zentrale"
       -- neuer Heimplatz: die Toolbox dort ist unbekannt, gleich hinfliegen und nachschauen
       if changed then
+        nav.setHome(mine, "Zentrale")
         state.toolbox, state.toolboxAt, state.toolboxMissing = nil, nil, nil
         save()
         lastLook, gearCheckSoon = nil, true

@@ -949,3 +949,19 @@ test("Szenario: Zentrale setzt den Heimplatz erst, waehrend die Turtle schon lae
   undo()
   assert(ok, err)
 end)
+
+test("Nav: Heimplatz-Protokoll zeigt, wer den Heimplatz gesetzt hat", function()
+  local w = world()
+  w.map:setPlace("home:Miner1", 730, 70, 640, 3)
+  local runner, done = realTurtle(w)
+  local nav = require("nav")
+  nav.calibrate = function() return true end
+  for _ = 1, 3 do sim.advance(16000) runner.step() end
+  done()
+  assert(nav.where():find("%[von: Zentrale%]"), nav.where())
+  nav.setHome()
+  assert(nav.where():find("%[von: sethome%]"), nav.where())
+  local log = cc.readFile(nav.HOMELOG)
+  assert(log:find("Zentrale: 730 70 640 Ost", 1, true), log)
+  assert(log:find("sethome: ", 1, true), log)
+end)

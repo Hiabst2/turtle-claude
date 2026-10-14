@@ -117,9 +117,19 @@ local function command(line)
     local sub = words[2]
     local ok, err
     if sub == "del" then ok, err = map:deletePlace(words[3])
+    elseif sub == "list" or sub == nil then
+      local names = {}
+      for name in pairs(map.state.places) do names[#names + 1] = name end
+      table.sort(names)
+      if #names == 0 then return "keine Orte. place depot x y z richtung | place home <Turtle> x y z richtung" end
+      local out = {}
+      for _, name in ipairs(names) do
+        local p = map.state.places[name]
+        out[#out + 1] = ("%s %d %d %d f%d"):format(name, p.x, p.y, p.z, p.f or 0)
+      end
+      return table.concat(out, " | ")
     elseif sub == "home" then ok, err = map:setPlace("home:" .. tostring(words[3]), words[4], words[5], words[6], FACING[words[7]] or words[7])
-    elseif sub then ok, err = map:setPlace(sub, words[3], words[4], words[5], FACING[words[6]] or words[6])
-    else return "place depot x y z richtung | place home <Turtle> x y z richtung | place del <name>" end
+    else ok, err = map:setPlace(sub, words[3], words[4], words[5], FACING[words[6]] or words[6]) end
     return ok and ("Karte Stand " .. map.state.rev) or err
   else
     return "add ... | list | cancel J1 | zone add/del/maxy/list | place depot/home/del"

@@ -62,7 +62,7 @@ function M.where()
   local p, h = state.pos, state.home
   local dirs = state.gps and WORLD_DIRS or REL_DIRS
   local text = ("Position %s, Blick %s | Zuhause %s%s%s"):format(fmt(p), dirs[p.f],
-    M.homeKnown() and fmt(h) or "nicht gesetzt",
+    M.homeKnown() and (fmt(h) .. " [von: " .. (state.homeFrom or "alte Datei") .. "]") or "nicht gesetzt",
     state.depot and (" | Lager " .. fmt(state.depot)) or "",
     state.gps and " (GPS-Weltkoordinaten)" or " (relativ zum Start, kein GPS)")
   if state.lost then
@@ -275,14 +275,38 @@ function M.goTo(x, y, z, order, dig)
   return true
 end
 
--- Ohne Angabe die aktuelle Position, sonst p = { x, y, z, f } (f wie in DX/DZ)
-function M.setHome(p)
+-- Jede Aenderung des Heimplatzes mit Herkunft in /.homelog festhalten (Programm diag zeigt sie an).
+-- So sieht man im Spiel, WER den Heimplatz gesetzt hat, statt zu raten.
+M.HOMELOG = "/.homelog"
+local function logHome(from)
+  local h, p = state.home, state.pos
+  local lines = {}
+  if fs.exists(M.HOMELOG) then
+    local f = fs.open(M.HOMELOG, "r")
+    for line in (f.readAll() or ""):gmatch("[^\n]+") do lines[#lines + 1] = line end
+    f.close()
+  end
+  lines[#lines + 1] = ("%s: %d %d %d %s | Turtle dabei bei %d %d %d"):format(from, h.x, h.y, h.z,
+    WORLD_DIRS[h.f] or "?", p.x, p.y, p.z)
+  while #lines > 10 do table.remove(lines, 1) end
+  local f = fs.open(M.HOMELOG, "w")
+  f.write(table.concat(lines, "\n") .. "\n")
+  f.close()
+end
+
+-- Ohne Angabe die aktuelle Position, sonst p = { x, y, z, f } (f wie in DX/DZ).
+-- from: woher der Heimplatz kommt ("sethome", "Zentrale", ...), wird angezeigt und protokolliert
+function M.setHome(p, from)
   p = p or state.pos
   state.home = { x = p.x, y = p.y, z = p.z, f = p.f }
   state.homeSet = true
+  state.homeFrom = from or "sethome"
   state.lost = nil
   save()
+  logHome(state.homeFrom)
 end
+
+function M.homeFrom() return state.homeFrom end
 
 -- Lagerplatz: hinter der Turtle der Cable Connector, unter oder neben ihr der Kohle-Connector
 function M.setDepot(p)
@@ -534,7 +558,12 @@ function M.calibrate()
       return { x = p1.x + vx, y = p1.y + (t.y - p.y), z = p1.z + vz, f = (t.f + k) % 4 }
     end
     -- nur einen wirklich gesetzten Heimplatz umrechnen; ein Platzhalter wuerde sonst zur Standort-Kopie
-    if M.homeKnown() then state.home = convert(h) end
+    if M.homeKnown() then
+      state.home = convert(h)
+      state.homeFrom = "Einmessen umgerechnet, vorher " .. (state.homeFrom or "alte Datei")
+      p.x, p.y, p.z = p1.x, p1.y, p1.z -- fuers Protokoll schon die neue Position
+      logHome(state.homeFrom)
+    end
     if state.depot then state.depot = convert(state.depot) end
   end
   p.x, p.y, p.z, p.f = p1.x, p1.y, p1.z, wf

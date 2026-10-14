@@ -18,6 +18,7 @@ tunnel.lua
 orehunt.lua
 gohome.lua
 sethome.lua
+diag.lua
 setdepot.lua
 goto.lua
 gpsfix.lua
