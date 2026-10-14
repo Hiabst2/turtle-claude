@@ -45,6 +45,17 @@ if not only or only == "gear" then
   end
   add("Links:  " .. eqText("left"))
   add("Rechts: " .. eqText("right"))
+  -- roh, was CC liefert (fuer die Fehlersuche)
+  for _, fnName in ipairs({ "getEquippedLeft", "getEquippedRight" }) do
+    local fn = turtle[fnName]
+    if type(fn) ~= "function" then
+      add(" " .. fnName .. ": gibt es nicht (" .. type(fn) .. ")")
+    else
+      local ok, res = pcall(fn)
+      local sok, text = pcall(textutils.serialize, res, { compact = true })
+      add(" " .. fnName .. ": " .. (ok and "" or "FEHLER ") .. tostring(sok and text or res):gsub("%s+", " "):sub(1, 60))
+    end
+  end
   for _, k in ipairs({ "pickaxe", "modem", "geo_scanner", "minecraft:chest" }) do
     add(" " .. k:gsub("^minecraft:", "") .. ": " .. (gear.where(k) or "fehlt"))
   end

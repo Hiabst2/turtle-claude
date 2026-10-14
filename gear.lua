@@ -69,22 +69,34 @@ function M.equippedSide(pattern)
   end
 end
 
--- Spitzhacke ausgeruestet? Seite oder nil
-function M.pickaxeSide() return M.equippedSide("pickaxe") end
+-- Seite, die sich nicht auslesen laesst und kein Peripheral hat: dort steckt vermutlich ein Werkzeug.
+-- (Manche CC-Versionen verraten nicht, was ausgeruestet ist; Werkzeuge sind keine Peripherals.)
+function M.guessToolSide()
+  for _, side in ipairs({ "left", "right" }) do
+    if equipped(side) == nil and peripheral.getType(side) == nil then return side end
+  end
+end
+
+-- Spitzhacke ausgeruestet? Seite oder nil (zweiter Wert true = nur vermutet)
+function M.pickaxeSide()
+  local side = M.equippedSide("pickaxe")
+  if side then return side end
+  side = M.guessToolSide()
+  if side then return side, true end
+end
 
 -- Hat die Turtle das Teil? Im Inventar ODER ausgeruestet (fuer alle Teile gleich)
 function M.has(pattern)
   if M.findSlot(pattern) then return true end
-  if M.equippedSide(pattern) then return true end
-  -- aeltere CC-Version ohne getEquipped*: Spitzhacke nicht pruefbar, als vorhanden annehmen
-  if pattern == "pickaxe" and turtle.getEquippedLeft == nil then return true end
-  return false
+  if pattern == "pickaxe" then return M.pickaxeSide() ~= nil end
+  return M.equippedSide(pattern) ~= nil
 end
 
 -- Wo ist das Teil? "links"/"rechts" (ausgeruestet), "Inventar" oder nil - fuer Status und diag
 function M.where(pattern)
-  local side = M.equippedSide(pattern)
-  if side then return side == "left" and "links" or "rechts" end
+  local side, guessed
+  if pattern == "pickaxe" then side, guessed = M.pickaxeSide() else side = M.equippedSide(pattern) end
+  if side then return (side == "left" and "links" or "rechts") .. (guessed and " (vermutlich)" or "") end
   if M.findSlot(pattern) then return "Inventar" end
 end
 
@@ -102,16 +114,13 @@ local function toolSide()
   return M.pickaxeSide() or "left"
 end
 
--- Spitzhacke aus dem Inventar anlegen, falls keine dran ist (auf der Seite ohne Modem/Chat Box)
-function M.equipPickaxe()
-  if M.pickaxeSide() then return true end
+-- Spitzhacke aus dem Inventar anlegen, falls keine dran ist (auf der Seite ohne Modem/Chat Box).
+-- force: das Graben hat "No tool" gemeldet - eine nur vermutete Spitzhacke ist also doch nicht dran
+function M.equipPickaxe(force)
+  local side, guessed = M.pickaxeSide()
+  if side and not (force and guessed) then return true end
   local slot = M.findSlot("pickaxe")
-  if not slot then
-    -- CC-Version ohne getEquipped*: sehen koennen wir die Spitzhacke nicht, also annehmen, dass sie dran ist
-    -- (fehlt sie wirklich, meldet das Graben "No tool")
-    if turtle.getEquippedLeft == nil then return true end
-    return false, "keine Spitzhacke dabei, weder ausgeruestet noch im Inventar (Toolbox?)"
-  end
+  if not slot then return false, "keine Spitzhacke dabei, weder ausgeruestet noch im Inventar (Toolbox?)" end
   local side = toolSide()
   local sel = turtle.getSelectedSlot()
   turtle.select(slot)

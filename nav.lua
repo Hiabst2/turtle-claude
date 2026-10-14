@@ -168,7 +168,7 @@ function M.dig(dir)
         found and data.name or "?")
     end
     local ok, why = dig()
-    if not ok and tostring(why):find("tool", 1, true) and gear.equipPickaxe() then ok, why = dig() end
+    if not ok and tostring(why):find("tool", 1, true) and gear.equipPickaxe(true) then ok, why = dig() end
     if not ok then return false, why or "nicht abbaubar" end
     M.stats.blocks = M.stats.blocks + 1
     if type(data) == "table" and falls(data.name) then sleep(0.5) end

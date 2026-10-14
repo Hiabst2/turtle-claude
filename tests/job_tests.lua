@@ -1235,3 +1235,32 @@ test("Gear: CC-Version ohne getEquipped* -> Spitzhacke gilt als vorhanden", func
   setmetatable(turtle, mt)
   assert(ok, err)
 end)
+
+test("Gear: Seiten nicht auslesbar -> Spitzhacke auf der Seite ohne Peripheral vermutet, No tool legt eine an", function()
+  local gear = require("gear")
+  local gl, gr, gt, gc, eqL, eqR = turtle.getEquippedLeft, turtle.getEquippedRight, peripheral.getType,
+    peripheral.call, turtle.equipLeft, turtle.equipRight
+  -- so im Spieltest: links und rechts "unbekannt", rechts das Modem
+  turtle.getEquippedLeft = function() error("nicht verfuegbar") end
+  turtle.getEquippedRight = function() error("nicht verfuegbar") end
+  peripheral.getType = function(side) if side == "right" then return "modem" end end
+  peripheral.call = function(side, m) if side == "right" and m == "isWireless" then return true end end
+  local equippedLeft = 0
+  turtle.equipLeft = function() equippedLeft = equippedLeft + 1 return true end
+  turtle.equipRight = function() error("Modem-Seite darf nicht getauscht werden") end
+  local ok, err = pcall(function()
+    turtle.getItemDetail = function() return nil end
+    eq(gear.has("pickaxe"), true, "vermutet links")
+    eq(gear.where("pickaxe"), "links (vermutlich)")
+    eq(gear.equipPickaxe(), true, "kein 'keine Spitzhacke dabei'")
+    eq(equippedLeft, 0)
+    -- Graben meldet No tool, Spitzhacke liegt im Inventar -> links anlegen
+    turtle.getItemDetail = function(s) if s == 5 then return { name = "minecraft:diamond_pickaxe", count = 1 } end end
+    eq(gear.equipPickaxe(true), true)
+    eq(equippedLeft, 1, "links angelegt")
+  end)
+  turtle.getEquippedLeft, turtle.getEquippedRight, peripheral.getType, peripheral.call, turtle.equipLeft,
+    turtle.equipRight = gl, gr, gt, gc, eqL, eqR
+  turtle.getItemDetail = function() return nil end
+  assert(ok, err)
+end)
