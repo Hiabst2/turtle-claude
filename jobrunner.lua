@@ -27,6 +27,7 @@ local PATTERN = { modem = "modem", geo_scanner = "geo_scanner", chest = "minecra
   player_detector = "player_detector" }
 M.GEAR_RETRY = 600 -- Sekunden bis zum naechsten Versuch, fehlende Ausruestung zu holen
 M.TOOLBOX_STALE = 600 -- Sekunden: so alt darf das Wissen ueber die Toolbox sein, bevor nachgeschaut wird
+M.GPS_CHECK = 600 -- Sekunden zwischen zwei Positionskontrollen per GPS im Leerlauf
 M.now = function() return sync.now() end
 local lastSay -- letzte Meldung, bleibt auf dem Bildschirm stehen
 local printer = print
@@ -42,6 +43,7 @@ local state = store.load(FILE) or {}
 local lastIdle, lastRefuel, lastGear
 local why, fuelWanted -- letzter Grund von der Zentrale, warum es keinen Auftrag gibt
 local gearCheckSoon, lastLook -- "fehlt ..." gemeldet: Ausruestung gleich pruefen; letzter Kontrollflug
+local calibrated, lastGpsCheck -- beim Start einmal per GPS einmessen, danach regelmaessig kontrollieren
 
 local function save() store.save(FILE, state) end
 
@@ -151,10 +153,16 @@ local function applyMap(p)
   if (tonumber(p.rev) or 0) <= zones.rev() then return end
   zones.replace(p.zones, p.maxY, p.rev)
   local places = type(p.places) == "table" and p.places or {}
-  if places.depot then nav.setDepot(places.depot) end
-  local mine = os.getComputerLabel() and places["home:" .. os.getComputerLabel()]
-  if mine then nav.setHome(mine) end
+  -- Orte sind Weltkoordinaten: nur mit GPS uebernehmen, sonst wuerde die Turtle in die falsche Richtung fahren
+  if nav.hasGps() then
+    if places.depot then nav.setDepot(places.depot) end
+    local mine = os.getComputerLabel() and places["home:" .. os.getComputerLabel()]
+    if mine then nav.setHome(mine) end
+  end
   M.say(("Karte Stand %d uebernommen: %d Zonen"):format(p.rev, #(p.zones or {})))
+  if not nav.hasGps() and next(places) then
+    M.say("Orte von der Zentrale nicht uebernommen: erst gpsfix") -- als letzte Meldung sichtbar lassen
+  end
 end
 
 local function onMessage(msg)
@@ -293,9 +301,35 @@ local function runJob(job)
   return "Gestoppt: unbekannter Auftragstyp " .. tostring(job.type)
 end
 
+-- Position und Blickrichtung per GPS einmessen (wie gpsfix)
+local function calibrate(reason)
+  local ok, res, err = pcall(nav.calibrate)
+  if ok and res then
+    M.say("GPS eingemessen (" .. reason .. "): " .. nav.where())
+  else
+    M.say("GPS-Einmessen gescheitert: " .. tostring(ok and err or res))
+  end
+  return ok and res
+end
+
+-- im Leerlauf: stimmt die gedachte Position noch mit dem GPS ueberein? Sonst neu einmessen.
+local function checkGps()
+  local ok, where = pcall(nav.locate)
+  if not ok or type(where) ~= "table" then return end
+  local p = nav.pos()
+  if where.x ~= p.x or where.y ~= p.y or where.z ~= p.z then
+    calibrate(("gedacht %d %d %d, GPS sagt %d %d %d"):format(p.x, p.y, p.z, where.x, where.y, where.z))
+  end
+end
+
 -- Eine Runde: Auftrag ausfuehren und melden, sonst im Leerlauf regelmaessig syncen
 function M.step()
   if not sync.enabled() then return "aus" end
+  if not calibrated then
+    calibrated = true
+    lastGpsCheck = M.now()
+    calibrate("Start") -- nach Abbauen, Verschieben oder Absturz stimmt die Blickrichtung sonst evtl. nicht
+  end
   local job = state.job
   if job and job.result == nil and not job.stop then
     nav.resetAbort() -- alte Abbrueche vergessen; VOR dem Sync, sonst ginge ein frischer job.cancel verloren
@@ -327,6 +361,10 @@ function M.step()
     return success and "fertig" or "fehlgeschlagen"
   end
   local now = M.now()
+  if not state.paused and (not lastGpsCheck or now - lastGpsCheck >= M.GPS_CHECK * 1000) then
+    lastGpsCheck = now
+    checkGps()
+  end
   -- fehlt etwas von der Ausruestung, daheim aus der Toolbox holen
   if not state.paused and (gearCheckSoon or not lastGear or now - lastGear >= M.GEAR_RETRY * 1000) then
     lastGear, gearCheckSoon = now, false

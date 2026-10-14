@@ -644,3 +644,45 @@ test("Worker: kommt er nicht nach oben, faehrt er erst zum letzten Einstieg", fu
   eq(r, "ausgeruestet")
   assert(status:find("Letzte Meldung"), status)
 end)
+
+test("Worker: misst sich beim Start per GPS ein und kontrolliert im Leerlauf", function()
+  local w = world()
+  local runner, done = realTurtle(w)
+  local nav = require("nav")
+  local calls = 0
+  nav.calibrate = function() calls = calls + 1 return true end
+  runner.step()
+  eq(calls, 1, "beim Start eingemessen")
+  -- GPS sagt etwas anderes als die gedachte Position -> neu einmessen
+  nav.locate = function() return { x = 999, y = 40, z = 605 } end
+  sim.advance((runner.GPS_CHECK + 1) * 1000)
+  runner.step()
+  eq(calls, 2, "Abweichung erkannt und neu eingemessen")
+  -- passt -> nichts tun
+  local p = nav.pos()
+  nav.locate = function() return { x = p.x, y = p.y, z = p.z } end
+  sim.advance((runner.GPS_CHECK + 1) * 1000)
+  runner.step()
+  done()
+  eq(calls, 2)
+end)
+
+test("Worker: ohne GPS werden Orte von der Zentrale nicht uebernommen", function()
+  require("store").save("/.nav", { pos = { x = 0, y = 0, z = 0, f = 0 }, home = { x = 0, y = 0, z = 0, f = 0 }, gps = false })
+  local w = world()
+  local runner, done = realTurtle(w)
+  -- realTurtle setzt eine GPS-Position; fuer diesen Test wieder ohne GPS
+  require("store").save("/.nav", { pos = { x = 0, y = 0, z = 0, f = 0 }, home = { x = 0, y = 0, z = 0, f = 0 }, gps = false })
+  for _, m in ipairs({ "nav", "jobrunner", "mine", "path" }) do package.loaded[m] = nil end
+  local nav = require("nav")
+  nav.calibrate = function() return false, "kein Signal" end
+  runner = require("jobrunner")
+  runner.setPrinter(function() end)
+  runner.init()
+  w.map:setPlace("home:Miner1", 730, 70, 640, 3)
+  require("sync").onMessage({ topic = "map.data", payload = w.map:data() })
+  local status = table.concat(runner.status(), " | ")
+  done()
+  eq(nav.home().x, 0, "Heimplatz unveraendert ohne GPS")
+  assert(status:find("erst gpsfix"), status)
+end)
