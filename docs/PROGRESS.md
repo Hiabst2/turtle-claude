@@ -33,7 +33,7 @@ Szenario-Tests (`Szenario: ...` in `tests/job_tests.lua`): Turtle mit **wirklich
 
 ## Wichtige Entscheidungen
 
-- **Erzjagd:** Startpunkt ist nur der Einstieg; gescannt wird auf der Abbauhöhe `level` (Standard Y 16), optional mehrere Schichten (`layers`).
+- **Erzjagd:** Startpunkt ist nur der Einstieg; gescannt wird auf der Abbauhöhe `level` (Standard Y 16), optional mehrere Schichten (`layers`). Bis zu 2 Nachscans je Bereich am äußersten Erz.
 - **Sicherheit lokal:** Jede Turtle prüft jeden Block selbst (Zonen, Höhenlimit, geschützte Blöcke), auch wenn die Zonen zentral gepflegt werden.
 - **Steuern nur der Besitzer**, fragen darf jeder. Zonen/Höhenlimit/Orte per Chat nur nach „ja“ des Besitzers – geprüft im Code, nicht von Claude.
 - **TurtleMQ at-least-once:** speichern → ACK → verarbeiten; Doppelte über die id erkannt. ACK pro Strecke (`hop`).
@@ -76,7 +76,8 @@ Szenario-Tests (`Szenario: ...` in `tests/job_tests.lua`): Turtle mit **wirklich
 | Heartbeats reißen tief in der Mine ab, erst über dem Lager wieder | Ender Modem, also keine Reichweite: gefunkt wurde nur zwischen Mining-Schritten, auf langen Wegen (Schacht, Weg durch Fels, Fahrt zum Lager) gar nicht | Funkprotokoll in `diag log` (`b983668`); Worker funkt auch unterwegs, höchstens einmal je Intervall; kommt die Karte vor dem GPS, wird sie nach dem Einmessen neu geholt (dieser Checkpoint) |
 | Abbruch auf dem Weg zum Lager: Ergebnis weg | Abbruch-Meldung ohne Zwischenstand; Zentrale ignorierte die Schlussmeldung eines abgebrochenen Auftrags | Meldung enthält „Bisher Abgebaut: …“; Zentrale speichert sie (`show J…`), Leitstelle meldet „abgebrochen“ mit Zwischenstand (`eff0f64`) |
 | Worker-Bildschirm überladen | Koordinaten, Toolbox-Inhalt und MQ-Zähler auf 13 Zeilen | Bildschirm: Zustand, Grund, Fuel + Funk, nur Warnungen, letzte Meldung; Rest in `diag` (`59f1a97`) |
-| Zwischenkiste blieb nach Abbruch im Feld | nach Abbruch blieb die Turtle stehen; vor Beginn des Minens kannte niemand mehr die Kiste | Worker räumen nach Abbruch/Entzug auf: Kiste holen (der Worker merkt sie sich, bis sie eingepackt ist), heim; klappt das nicht: „Kiste liegt noch bei x y z“ (dieser Checkpoint) |
+| Zwischenkiste blieb nach Abbruch im Feld | nach Abbruch blieb die Turtle stehen; vor Beginn des Minens kannte niemand mehr die Kiste | Worker räumen nach Abbruch/Entzug auf: Kiste holen (der Worker merkt sie sich, bis sie eingepackt ist), heim; klappt das nicht: „Kiste liegt noch bei x y z“ (`a7048e7`) |
+| Adern über den Scanrand hinaus werden abgeschnitten | ein Scan je Bereich | Nachscans: Erz gefunden → beim äußersten Erz nochmal scannen, höchstens 2× hintereinander, nur solange Neues kommt; zählen nicht als Runde (dieser Checkpoint) |
 
 **Lehre:** erst Zustand im Spiel sichtbar machen (diag), dann fixen – nicht raten.
 

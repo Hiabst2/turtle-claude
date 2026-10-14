@@ -1425,3 +1425,46 @@ test("Worker: Bildschirm zeigt nur das Wichtige, Koordinaten und Zaehler stehen 
   assert(details:find("Position x=705", 1, true), details)
   assert(details:find("TurtleMQ: an", 1, true), details)
 end)
+
+test("Szenario: Erzjagd folgt einer langen Ader mit bis zu 2 Nachscans", function()
+  local w = world()
+  w.map:addZone("mine", 715, 0, 615, 750, 100, 635)
+  w.map:setMaxY(100)
+  local job = w.jobs:create({ type = "orehunt", params = { rounds = 1, radius = 4,
+    start = { x = 725, y = 80, z = 625, f = 2 } } }, "test")
+  -- Ader von x=727 bis 741 auf Y 16: der erste Scan (Radius 4) sieht nur bis 729
+  local ores = {}
+  for x = 727, 741 do ores[x .. " 16 625"] = "minecraft:iron_ore" end
+  local real = { x = 705, y = 71, z = 605, f = 0 }
+  local inv = { [1] = { name = "minecraft:diamond_pickaxe", count = 1 }, [2] = { name = "minecraft:chest", count = 1 },
+    [3] = { name = "advancedperipherals:geo_scanner", count = 1 } }
+  local bw, undo = blockWorld(real, inv, 70, ores)
+  local ok, err = pcall(function()
+    local runner, done = realTurtle(w, { pos = { x = 705, y = 71, z = 605, f = 0 },
+      home = { x = 705, y = 71, z = 605, f = 0 }, gps = true })
+    turtle.getItemDetail = function(s) local i = inv[s] return i and { name = i.name, count = i.count } end
+    turtle.getEquippedRight = function() return { name = "computercraft:wireless_modem_advanced" } end
+    turtle.getFuelLevel = function() return 20000 end
+    peripheral.wrap = function(side)
+      local l = bw.left()
+      if side == "left" and l and l.name:find("geo_scanner") then return bw.scanner() end
+    end
+    for _ = 1, 20 do
+      sim.advance(16000)
+      runner.step()
+      local st = w.jobs.state.jobs[job.id].state
+      if st == "complete" or st == "failed" then break end
+    end
+    local log = cc.readFile(runner.WORKLOG) or ""
+    done()
+    local j = w.jobs.state.jobs[job.id]
+    eq(j.state, "complete", tostring(j.result or j.reason) .. " | " .. log)
+    -- Bereich: 727-729, Nachscan 1 bei 729: bis 733, Nachscan 2 bei 733: bis 737 -> 11 Bloecke, dann Schluss
+    assert(j.result:find("iron_ore x11", 1, true), j.result .. " | " .. log)
+    assert(log:find("Nachscan 2:", 1, true), log)
+    assert(not log:find("Nachscan 3", 1, true), "hoechstens 2 Nachscans")
+    eq(("%d %d %d"):format(real.x, real.y, real.z), "705 71 605", "wieder daheim")
+  end)
+  undo()
+  assert(ok, err)
+end)

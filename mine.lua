@@ -464,6 +464,8 @@ local function scanArea(map, radius)
   return after - before
 end
 
+M.FOLLOWUPS = 2 -- Nachscans je Bereich, wenn dort Erz gefunden wurde
+
 function M.orehunt(opts, say)
   local rounds = clamp(opts.rounds, 1, 16, 4)
   local radius = clamp(opts.radius, 2, 16, 8)
@@ -479,7 +481,11 @@ function M.orehunt(opts, say)
   local map = path.newMap()
   ctx.map = map
   path.markAir(map, nav.pos())
-  local function onOre(name) found(ctx, name) end
+  local mined = {} -- wo in diesem Bereich Erz abgebaut wurde (fuer die Nachscans)
+  local function onOre(name)
+    found(ctx, name)
+    mined[#mined + 1] = copy(nav.pos())
+  end
 
   -- Scan-Punkte liegen auf einem Raster mit 2 x radius Abstand, damit sich die Scans nicht ueberschneiden.
   -- Als naechstes kommt immer der ungescannte Punkt in der Zone, der am naechsten liegt.
@@ -520,9 +526,32 @@ function M.orehunt(opts, say)
     if step(path.go(map, center, onOre)) then
       local n = scanArea(map, radius)
       ctx.say(("Scan %d/%d: %d neue Erzbloecke."):format(done + 1, rounds, n))
+      mined = {}
       repeat
         maintain(ctx)
       until not path.nextOre(map, onOre, center, radius)
+      -- Nachscans: Adern gehen oft ueber den Scanrand hinaus. Wurde Erz gefunden, dort noch einmal scannen,
+      -- wo das aeusserste Erz lag, hoechstens M.FOLLOWUPS-mal hintereinander und nur solange Neues kommt.
+      local origin = center
+      for extra = 1, M.FOLLOWUPS do
+        if #mined == 0 then break end
+        local far, farD = nil, -1
+        for _, p in ipairs(mined) do
+          local dist = nav.dist(p, origin)
+          if dist > farD then far, farD = p, dist end
+        end
+        sync.setJob(("orehunt %d/%d Nachscan %d"):format(done + 1, rounds, extra))
+        maintain(ctx)
+        if not step(path.go(map, far, onOre)) then break end
+        local m = scanArea(map, radius)
+        ctx.say(("Nachscan %d: %d neue Erzbloecke."):format(extra, m))
+        if m == 0 then break end
+        mined = {}
+        repeat
+          maintain(ctx)
+        until not path.nextOre(map, onOre, far, radius)
+        origin = far
+      end
       opts.scanned[k] = true
       done = done + 1
     else
