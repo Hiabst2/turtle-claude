@@ -31,8 +31,24 @@ M.GPS_CHECK = 600 -- Sekunden zwischen zwei Positionskontrollen per GPS im Leerl
 M.now = function() return sync.now() end
 local lastSay -- letzte Meldung, bleibt auf dem Bildschirm stehen
 local printer = print
+M.WORKLOG = "/.worklog" -- die letzten Meldungen, fuer diag (was hat die Turtle beim Auftrag erlebt?)
+local function logLine(text)
+  local lines = {}
+  if fs.exists(M.WORKLOG) then
+    local f = fs.open(M.WORKLOG, "r")
+    for line in (f.readAll() or ""):gmatch("[^\n]+") do lines[#lines + 1] = line end
+    f.close()
+  end
+  lines[#lines + 1] = (text:gsub("\n", " / "))
+  while #lines > 30 do table.remove(lines, 1) end
+  local f = fs.open(M.WORKLOG, "w")
+  f.write(table.concat(lines, "\n") .. "\n")
+  f.close()
+end
+
 M.say = function(text)
   lastSay = tostring(text)
+  pcall(logLine, lastSay)
   printer(text)
 end
 -- Tests und andere Aufrufer koennen die Ausgabe umlenken, die letzte Meldung bleibt trotzdem gespeichert

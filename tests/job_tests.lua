@@ -1117,3 +1117,13 @@ test("Szenario: Tunnel - Spitzhacke nur im Inventar, Zwischenkiste an der Oberfl
   undo()
   assert(ok, err)
 end)
+
+test("Worker: Meldungen landen im Protokoll fuer diag", function()
+  local w = world()
+  local runner, done = realTurtle(w)
+  for i = 1, 35 do runner.say("Meldung " .. i .. "\nzweite Zeile") end
+  done()
+  local log = cc.readFile(runner.WORKLOG)
+  assert(log:find("Meldung 35 / zweite Zeile", 1, true), log)
+  assert(not log:find("Meldung 5 /", 1, true), "nur die letzten 30")
+end)

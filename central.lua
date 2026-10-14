@@ -46,16 +46,27 @@ local function draw()
     if y > h - 6 then break end
     top.setCursorPos(1, y) top.write(line:sub(1, w)) y = y + 1
   end
+  -- Antwort auf den letzten Befehl, umgebrochen; darf bei Bedarf ueber das Protokoll reichen
+  local msg = {}
+  for part in (message .. "\n"):gmatch("(.-)\n") do
+    repeat
+      msg[#msg + 1] = part:sub(1, w)
+      part = part:sub(w + 1)
+    until part == ""
+  end
+  local first = math.max(2, h - 1 - #msg)
   top.setTextColor(colors.gray)
   y = math.max(y, h - 6)
   local log = {}
   for _, l in ipairs(jobs.log) do log[#log + 1] = l end
   for _, l in ipairs(map.log) do log[#log + 1] = l end
-  for i = 1, math.min(#log, h - 2 - y) do
+  for i = 1, math.min(#log, first - y) do
     top.setCursorPos(1, y) top.write(log[i]:sub(1, w)) y = y + 1
   end
   top.setTextColor(colors.lightBlue)
-  top.setCursorPos(1, h - 2) top.write(message:sub(1, w))
+  for i = 1, math.min(#msg, h - 2 - first + 1) do
+    top.setCursorPos(1, first + i - 1) top.clearLine() top.write(msg[i])
+  end
 end
 
 local FACING = { sued = 0, west = 1, nord = 2, ost = 3 }
@@ -99,6 +110,25 @@ local function command(line)
   elseif cmd == "cancel" and words[2] then
     local r = jobs:cancel(words[2])
     return r.error or (r.id .. ": " .. r.state)
+  elseif cmd == "show" and words[2] then
+    local j = jobs.state.jobs[words[2]] or jobs.state.jobs[words[2]:upper()]
+    if not j then return "kein Auftrag " .. words[2] end
+    local function pt(p) return p and ("%s %s %s"):format(p.x, p.y, p.z) or "-" end
+    local out = { ("%s %s %s, Worker %s, Versuche %s"):format(j.id, j.type, j.state, tostring(j.worker),
+      tostring(j.attempts)) }
+    local params = {}
+    for k, v in pairs(j.params or {}) do
+      if k ~= "start" then params[#params + 1] = k .. "=" .. tostring(v) end
+    end
+    table.sort(params)
+    out[#out + 1] = "Start " .. pt(j.params and j.params.start) .. "  " .. table.concat(params, " ")
+    if j.area then
+      local a = j.area
+      out[#out + 1] = ("Bereich %s %s %s bis %s %s %s"):format(a.x1, a.y1, a.z1, a.x2, a.y2, a.z2)
+    end
+    if j.result then out[#out + 1] = "Ergebnis: " .. j.result end
+    if j.reason then out[#out + 1] = "Grund: " .. j.reason end
+    return table.concat(out, "\n")
   elseif cmd == "list" then
     return #jobs:statusLines() .. " aktuelle Auftraege (siehe oben)"
   elseif cmd == "zone" then
@@ -109,7 +139,9 @@ local function command(line)
     elseif sub == "maxy" then ok, err = map:setMaxY(words[3])
     else
       local names = {}
-      for _, z in ipairs(map.state.zones) do names[#names + 1] = z.name end
+      for _, z in ipairs(map.state.zones) do
+        names[#names + 1] = ("%s %s %s %s bis %s %s %s"):format(z.name, z.x1, z.y1, z.z1, z.x2, z.y2, z.z2)
+      end
       return "Zonen: " .. (#names > 0 and table.concat(names, ", ") or "keine") .. ", Hoehenlimit Y " .. map.state.maxY
     end
     return ok and ("Karte Stand " .. map.state.rev .. ", die Turtles uebernehmen sie beim naechsten Sync") or err
@@ -132,7 +164,7 @@ local function command(line)
     else ok, err = map:setPlace(sub, words[3], words[4], words[5], FACING[words[6]] or words[6]) end
     return ok and ("Karte Stand " .. map.state.rev) or err
   else
-    return "add ... | list | cancel J1 | zone add/del/maxy/list | place depot/home/del"
+    return "add ... | list | show J1 | cancel J1 | zone add/del/maxy/list | place list/depot/home/del"
   end
 end
 

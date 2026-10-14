@@ -15,3 +15,13 @@ if fs.exists(nav.HOMELOG) then
 else
   print(" (leer - Heimplatz wurde seit diesem Update nicht gesetzt)")
 end
+-- letzte Meldungen des Workers (Scans, Erze, Ende des Auftrags); diag 20 zeigt mehr
+local n = tonumber(({ ... })[1]) or 8
+if fs.exists("/.worklog") then
+  print("Letzte Meldungen:")
+  local f = fs.open("/.worklog", "r")
+  local lines = {}
+  for line in (f.readAll() or ""):gmatch("[^\n]+") do lines[#lines + 1] = line end
+  f.close()
+  for i = math.max(1, #lines - n + 1), #lines do print(" " .. lines[i]) end
+end
