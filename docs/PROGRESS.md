@@ -40,6 +40,7 @@ Szenario-Tests (`Szenario: ...` in `tests/job_tests.lua`): Turtle mit **wirklich
 - **Turtles = Sync-Geräte:** Post nur beim Kontakt, Ende mit `mq.done`; keine Funksprüche auf Verdacht.
 - **Zentrale** auf eigenem Computer; **All-in-one-Turtle** bekommt keine neuen Funktionen mehr.
 - **Ausrüstung:** jedes Teil zählt als vorhanden, ob ausgerüstet, im Inventar oder in der Toolbox daheim. Die CC-Version im Spiel kennt `getEquipped*` nicht: Ausgerüstetes wird über den Peripheral-Typ erkannt, die Spitzhacke auf der Seite ohne Peripheral vermutet.
+- **Abbruch:** Worker hören sofort mit dem Minen auf, holen dann die Zwischenkiste und fahren heim.
 - **Worker:** Kiste als Zwischenspeicher ist Pflicht für Mining-Aufträge; was in der Toolbox daheim liegt, zählt als vorhanden; nach jedem Auftrag heim; Einstieg merken; beim Start und alle 10 min GPS-Kontrolle.
 - **Commits** nur je Checkpoint.
 
@@ -74,14 +75,14 @@ Szenario-Tests (`Szenario: ...` in `tests/job_tests.lua`): Turtle mit **wirklich
 | immer noch "pickaxe: fehlt", beide Seiten "unbekannt" | CC-Version im Spiel hat **kein** `getEquippedLeft/Right` (per `diag gear` bestätigt) – Ausgerüstetes ist nur über den Peripheral-Typ erkennbar, Werkzeuge gar nicht | Seite ohne Peripheral, die sich nicht auslesen lässt = vermutlich Spitzhacke; meldet Graben "No tool", wird eine aus dem Inventar angelegt; `diag gear` zeigt den Rohwert (`08afffc`) |
 | Heartbeats reißen tief in der Mine ab, erst über dem Lager wieder | Ender Modem, also keine Reichweite: gefunkt wurde nur zwischen Mining-Schritten, auf langen Wegen (Schacht, Weg durch Fels, Fahrt zum Lager) gar nicht | Funkprotokoll in `diag log` (`b983668`); Worker funkt auch unterwegs, höchstens einmal je Intervall; kommt die Karte vor dem GPS, wird sie nach dem Einmessen neu geholt (dieser Checkpoint) |
 | Abbruch auf dem Weg zum Lager: Ergebnis weg | Abbruch-Meldung ohne Zwischenstand; Zentrale ignorierte die Schlussmeldung eines abgebrochenen Auftrags | Meldung enthält „Bisher Abgebaut: …“; Zentrale speichert sie (`show J…`), Leitstelle meldet „abgebrochen“ mit Zwischenstand (`eff0f64`) |
-| Worker-Bildschirm überladen | Koordinaten, Toolbox-Inhalt und MQ-Zähler auf 13 Zeilen | Bildschirm: Zustand, Grund, Fuel + Funk, nur Warnungen, letzte Meldung; Rest in `diag` (dieser Checkpoint) |
+| Worker-Bildschirm überladen | Koordinaten, Toolbox-Inhalt und MQ-Zähler auf 13 Zeilen | Bildschirm: Zustand, Grund, Fuel + Funk, nur Warnungen, letzte Meldung; Rest in `diag` (`59f1a97`) |
+| Zwischenkiste blieb nach Abbruch im Feld | nach Abbruch blieb die Turtle stehen; vor Beginn des Minens kannte niemand mehr die Kiste | Worker räumen nach Abbruch/Entzug auf: Kiste holen (der Worker merkt sie sich, bis sie eingepackt ist), heim; klappt das nicht: „Kiste liegt noch bei x y z“ (dieser Checkpoint) |
 
 **Lehre:** erst Zustand im Spiel sichtbar machen (diag), dann fixen – nicht raten.
 
 ## Offen / Nächste Schritte
 
 - P3.4 abschließen: Miner holt Ausrüstung, nimmt J1 (Erzjagd) an, arbeitet, lädt aus, meldet fertig
-- Offen: Bei Abbruch bleibt die Turtle stehen – die Zwischenkiste (mit abgelegter Ausrüstung) bleibt im Feld. Klären: nach Abbruch aufräumen (Kiste holen, ausladen, heim) oder stehen bleiben?
 - Pathing ausbauen (Wunsch aus dem Spieltest); Regel bleibt: gegraben wird nur in Mining-Zonen (einzige Ausnahme: die eigene Zwischenkiste)
 - danach laut Roadmap: P4 Scout-System, P5 WorldMap, P6/P7 Server + PostgreSQL, …
 - All-in-one-Turtle (`claude.lua`, Rolle `turtle`) entfernen, sobald nicht mehr gebraucht

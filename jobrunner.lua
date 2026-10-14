@@ -88,6 +88,31 @@ local function goHomeSafe()
   return nav.goHome()
 end
 
+-- Nach Abbruch oder Entzug aufraeumen: Zwischenkiste holen, falls sie noch draussen steht, dann heim.
+-- Liefert einen Text fuer das Ergebnis.
+local function tidyUp(job)
+  nav.resetAbort()
+  local notes = ""
+  if job.chest then
+    local c = job.chest
+    local ok, got, err = pcall(mine.fetchChest, c)
+    if ok and got then
+      job.chest = nil
+      notes = notes .. "\nZwischenkiste eingepackt."
+    else
+      local text = ("Kiste liegt noch bei %d %d %d: %s"):format(c.x, c.y, c.z, tostring(ok and err or got))
+      M.say(text)
+      notes = notes .. "\n" .. text
+    end
+    save()
+  end
+  if nav.homeKnown() and not atHome() then
+    local ok = goHomeSafe()
+    notes = notes .. (ok and "\nBin heimgefahren." or "\nHeimweg gescheitert.")
+  end
+  return notes
+end
+
 -- Toolbox unter dem Heimplatz anschauen und merken (geht nur daheim)
 local function noteToolbox()
   if not atHome() then return end
@@ -370,7 +395,10 @@ local function runJob(job)
   if job.type == "orehunt" or job.type == "stripmine" or job.type == "tunnel" then
     local opts = copyParams(p)
     opts.chest, opts.stashed = job.chest, job.stashed -- Zwischenkiste steht schon an der Oberflaeche
-    return mine.run(mine[job.type], opts, M.say)
+    local res = mine.run(mine[job.type], opts, M.say)
+    job.chest = opts.chest -- nil, sobald sie wieder eingepackt ist
+    save()
+    return res
   elseif job.type == "goto" then
     local ok, err = nav.travel(p.x, p.y, p.z)
     return ok and ("Fertig. " .. nav.where()) or ("Gestoppt: " .. tostring(err))
@@ -442,6 +470,7 @@ function M.step()
         res = "Gestoppt: " .. job.stop .. (soFar and ("\n" .. soFar) or "")
       end
     end
+    if job.stop then res = res .. tidyUp(job) end -- abgebrochen/entzogen: Kiste holen, heim
     job.result = res
     save()
   end

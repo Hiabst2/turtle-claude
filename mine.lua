@@ -552,8 +552,11 @@ function M.run(job, opts, say)
   local msg = "Gestoppt: " .. tostring(res)
   -- was bis hierher abgebaut wurde, geht sonst verloren (z.B. Abbruch auf dem Weg zum Lager)
   if worked then msg = msg .. "\nBisher " .. summary(worked, {}):match("^[^\n]+") end
-  -- bei Zonen- oder anderen Fehlern sicher heimfahren, bei "stop" stehen bleiben
-  if res ~= "abgebrochen" and opts.start then
+  -- bei Zonen- oder anderen Fehlern sicher heimfahren. Bei Abbruch raeumen Worker ebenfalls auf (Kiste holen,
+  -- heim); andere Programme (Handbetrieb) bleiben dann stehen.
+  local cancelled = res == "abgebrochen"
+  if cancelled and opts.keep_gear then nav.resetAbort() end
+  if (not cancelled or opts.keep_gear) and opts.start then
     local ctx = newCtx(say, true, opts.start)
     pcall(retrieveChest, ctx, opts)
     local back = pcall(tripHome, ctx)
@@ -561,6 +564,26 @@ function M.run(job, opts, say)
   end
   pcall(sync.run) -- Fehler/Abbruch melden
   return msg .. "\n" .. nav.where()
+end
+
+-- Zwischenkiste von ausserhalb eines Auftrags holen (z.B. Abbruch, bevor das Minen begonnen hat).
+-- c wie opts.chest. Liefert true oder false, Grund.
+function M.fetchChest(c)
+  if not c then return true end
+  local s = c.stand or { x = c.x, y = c.y + 1, z = c.z }
+  local ok, err = nav.travel(s.x, s.y, s.z)
+  if not ok then return false, err end
+  local suck, dig, inspect = turtle.suckDown, turtle.digDown, turtle.inspectDown
+  if c.stand then
+    nav.face(c.f)
+    suck, dig, inspect = turtle.suck, turtle.dig, turtle.inspect
+  end
+  local found, data = inspect()
+  if found and data.name:find("chest", 1, true) then
+    while suck() do end
+    dig() -- die eigene Kiste, darum direkt und nicht ueber nav.dig
+  end
+  return true
 end
 
 -- Setzt einen nach einem Neustart unterbrochenen Auftrag fort. Gibt nil zurueck, wenn keiner offen ist.

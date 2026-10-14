@@ -246,6 +246,14 @@ local function cancelWhen(when)
   local runner, done = realTurtle(w)
   settings.values["mq.interval"] = 0 -- bei jedem Schritt syncen, damit der Abbruch schnell ankommt
   local cancelled = false
+  -- wie weit ist sie in den Tunnel gekommen? (danach faehrt sie zum Aufraeumen heim)
+  local nav = require("nav")
+  local fwd, farthest = turtle.forward, nav.pos().z
+  turtle.forward = function(...)
+    local r = fwd(...)
+    farthest = math.max(farthest, nav.pos().z + (r and 1 or 0) * (nav.pos().f == 0 and 1 or 0))
+    return r
+  end
   local step = w.step
   w.step = function(n)
     step(n)
@@ -259,11 +267,12 @@ local function cancelWhen(when)
     runner.step()
     if cancelled and not runner.state().job then break end
   end
+  turtle.forward = fwd
   done()
   eq(cancelled, true, "Abbruch nie ausgeloest")
   eq(w.jobs.state.jobs[job.id].state, "cancelled")
   eq(runner.state().job, nil, "Worker hat aufgehoert und ist wieder frei")
-  return require("nav").pos()
+  return nav.pos(), farthest
 end
 
 test("Worker: Abbruch direkt nach der Zuteilung - die Turtle faengt gar nicht erst an", function()
@@ -271,9 +280,10 @@ test("Worker: Abbruch direkt nach der Zuteilung - die Turtle faengt gar nicht er
   eq(p.z, 605, "ist nicht losgefahren")
 end)
 
-test("Worker: Abbruch mitten im Tunnel stoppt sofort", function()
-  local p = cancelWhen(function(j) return j.progress and j.progress:find("tunnel 5/") end)
-  assert(p.z >= 614 and p.z <= 620, "sollte kurz nach Meter 5 stehen, steht bei z=" .. p.z)
+test("Worker: Abbruch mitten im Tunnel stoppt sofort und faehrt zum Aufraeumen heim", function()
+  local p, farthest = cancelWhen(function(j) return j.progress and j.progress:find("tunnel 5/") end)
+  assert(farthest >= 614 and farthest <= 621, "sollte kurz nach Meter 5 aufhoeren, kam bis z=" .. farthest)
+  eq(("%d %d %d"):format(p.x, p.y, p.z), "705 40 605", "danach daheim")
 end)
 
 -- P3.2: Kosten, Map- und Path-Dienst ------------------------------------------
@@ -1318,7 +1328,8 @@ test("Worker: funkt auch unterwegs auf langen Wegen (Heartbeat reisst nicht ab)"
   assert(during >= 2, "unterwegs gefunkt: " .. during .. "x")
 end)
 
-test("Szenario: Abbruch auf dem Rueckweg - Zentrale bekommt trotzdem, was bis dahin abgebaut wurde", function()
+-- Erzjagd in der Klotzwelt, abgebrochen, sobald trigger(real, moveName) true liefert; jeder Block dauert 2 s
+local function cancelScenario(trigger)
   local w = world()
   w.map:addZone("mine", 715, 0, 615, 735, 100, 635)
   w.map:setMaxY(100)
@@ -1329,6 +1340,7 @@ test("Szenario: Abbruch auf dem Rueckweg - Zentrale bekommt trotzdem, was bis da
   local inv = { [1] = { name = "minecraft:diamond_pickaxe", count = 1 }, [2] = { name = "minecraft:chest", count = 1 },
     [3] = { name = "advancedperipherals:geo_scanner", count = 1 } }
   local bw, undo = blockWorld(real, inv, 70, ores)
+  local result = {}
   local ok, err = pcall(function()
     local runner, done = realTurtle(w, { pos = { x = 705, y = 71, z = 605, f = 0 },
       home = { x = 705, y = 71, z = 605, f = 0 }, gps = true })
@@ -1339,33 +1351,61 @@ test("Szenario: Abbruch auf dem Rueckweg - Zentrale bekommt trotzdem, was bis da
       local l = bw.left()
       if side == "left" and l and l.name:find("geo_scanner") then return bw.scanner() end
     end
-    -- war die Turtle unten und faehrt wieder hoch, wird abgebrochen; jeder Block dauert 2 s (Funk unterwegs)
-    local up, wasDeep, cancelled = turtle.up, false, false
-    turtle.up = function()
-      if real.y < 20 then wasDeep = true end
-      if wasDeep and real.y > 40 and not cancelled then
-        cancelled = true
-        w.jobs:cancel(job.id)
+    local saved = {}
+    for _, m in ipairs({ "up", "down", "forward" }) do
+      local fn = turtle[m]
+      saved[m] = fn
+      turtle[m] = function()
+        if not result.cancelled and trigger(real, m) then
+          result.cancelled = true
+          w.jobs:cancel(job.id)
+        end
+        sim.advance(2000)
+        return fn()
       end
-      sim.advance(2000)
-      return up()
     end
     for _ = 1, 20 do
       sim.advance(16000)
       runner.step()
-      local j = w.jobs.state.jobs[job.id]
-      if j.result then break end
+      if w.jobs.state.jobs[job.id].result then break end
     end
-    turtle.up = up
+    for m, fn in pairs(saved) do turtle[m] = fn end
+    result.log = cc.readFile(runner.WORKLOG) or ""
     done()
-    local j = w.jobs.state.jobs[job.id]
-    assert(cancelled, "Abbruch nie ausgeloest")
-    eq(j.state, "cancelled")
-    assert(j.result and j.result:find("Bisher Abgebaut", 1, true), tostring(j.result))
-    assert(j.result:find("iron_ore x2", 1, true), j.result)
   end)
   undo()
   assert(ok, err)
+  result.job = w.jobs.state.jobs[job.id]
+  result.chestsLeft = next(bw.chests)
+  result.real = real
+  local hasChest = false
+  for _, i in pairs(inv) do if i.name == "minecraft:chest" then hasChest = true end end
+  result.hasChest = hasChest
+  return result
+end
+
+test("Szenario: Abbruch auf dem Rueckweg - Zwischenstand gemeldet, Kiste geholt, daheim", function()
+  local wasDeep = false
+  local r = cancelScenario(function(real, m)
+    if real.y < 20 then wasDeep = true end
+    return m == "up" and wasDeep and real.y > 40
+  end)
+  assert(r.cancelled, "Abbruch nie ausgeloest")
+  eq(r.job.state, "cancelled")
+  assert(r.job.result and r.job.result:find("Bisher Abgebaut", 1, true), tostring(r.job.result))
+  assert(r.job.result:find("iron_ore x2", 1, true), r.job.result)
+  eq(r.chestsLeft, nil, "keine Kiste liegen geblieben | " .. r.log)
+  eq(r.hasChest, true, "Kiste wieder im Inventar")
+  eq(("%d %d %d"):format(r.real.x, r.real.y, r.real.z), "705 71 605", "daheim | " .. r.log)
+end)
+
+test("Szenario: Abbruch schon im Schacht (Kiste steht oben) - Kiste geholt, daheim", function()
+  local r = cancelScenario(function(real, m) return m == "down" and real.y < 60 end)
+  assert(r.cancelled, "Abbruch nie ausgeloest")
+  eq(r.job.state, "cancelled")
+  eq(r.chestsLeft, nil, "keine Kiste liegen geblieben | " .. tostring(r.job.result) .. " | " .. r.log)
+  eq(r.hasChest, true, "Kiste wieder im Inventar")
+  eq(("%d %d %d"):format(r.real.x, r.real.y, r.real.z), "705 71 605", "daheim | " .. r.log)
 end)
 
 test("Worker: Bildschirm zeigt nur das Wichtige, Koordinaten und Zaehler stehen in diag", function()
