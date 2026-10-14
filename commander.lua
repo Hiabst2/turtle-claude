@@ -80,7 +80,7 @@ function M.new(opts)
         p.retry and " (wird erneut versucht)" or "")
     end
     if text then
-      c.agent:reply(text:sub(1, 400), true)
+      c.agent:reply(text:sub(1, 800), true)
       c.agent.notes[#c.agent.notes + 1] = "[Meldung] " .. text
     end
   end

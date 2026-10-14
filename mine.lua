@@ -308,9 +308,27 @@ local function finish(ctx, opts, goHome)
   return lines
 end
 
+-- Kurzname fuer die Erzliste: "mekanism:deepslate_uranium_ore" -> "uranium"
+function M.oreShort(name)
+  local n = name:gsub("^[%w_%-]+:", ""):gsub("^deepslate_", ""):gsub("_ore$", "")
+  return (n:gsub("_", " "))
+end
+
 local function summary(ctx, lines)
+  -- gleiche Erze (normal und deepslate, verschiedene Mods) zusammenzaehlen, die meisten zuerst
+  local counts = {}
+  for name, n in pairs(ctx.ores) do
+    local short = M.oreShort(name)
+    counts[short] = (counts[short] or 0) + n
+  end
+  local names = {}
+  for short in pairs(counts) do names[#names + 1] = short end
+  table.sort(names, function(a, b)
+    if counts[a] ~= counts[b] then return counts[a] > counts[b] end
+    return a < b
+  end)
   local ores = {}
-  for name, n in pairs(ctx.ores) do ores[#ores + 1] = name:gsub("^minecraft:", "") .. " x" .. n end
+  for _, short in ipairs(names) do ores[#ores + 1] = short .. " x" .. counts[short] end
   local oreCount = 0
   for _, n in pairs(ctx.ores) do oreCount = oreCount + n end
   table.insert(lines, 1, ("Abgebaut: %d Bloecke, davon %d Erz und %d Stein/Sonstiges. Erze: %s"):format(

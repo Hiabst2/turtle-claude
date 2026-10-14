@@ -77,7 +77,8 @@ Szenario-Tests (`Szenario: ...` in `tests/job_tests.lua`): Turtle mit **wirklich
 | Abbruch auf dem Weg zum Lager: Ergebnis weg | Abbruch-Meldung ohne Zwischenstand; Zentrale ignorierte die Schlussmeldung eines abgebrochenen Auftrags | Meldung enthält „Bisher Abgebaut: …“; Zentrale speichert sie (`show J…`), Leitstelle meldet „abgebrochen“ mit Zwischenstand (`eff0f64`) |
 | Worker-Bildschirm überladen | Koordinaten, Toolbox-Inhalt und MQ-Zähler auf 13 Zeilen | Bildschirm: Zustand, Grund, Fuel + Funk, nur Warnungen, letzte Meldung; Rest in `diag` (`59f1a97`) |
 | Zwischenkiste blieb nach Abbruch im Feld | nach Abbruch blieb die Turtle stehen; vor Beginn des Minens kannte niemand mehr die Kiste | Worker räumen nach Abbruch/Entzug auf: Kiste holen (der Worker merkt sie sich, bis sie eingepackt ist), heim; klappt das nicht: „Kiste liegt noch bei x y z“ (`a7048e7`) |
-| Adern über den Scanrand hinaus werden abgeschnitten | ein Scan je Bereich | Nachscans: Erz gefunden → beim äußersten Erz nochmal scannen, höchstens 2× hintereinander, nur solange Neues kommt; zählen nicht als Runde (dieser Checkpoint) |
+| Adern über den Scanrand hinaus werden abgeschnitten | ein Scan je Bereich | Nachscans: Erz gefunden → beim äußersten Erz nochmal scannen, höchstens 2× hintereinander, nur solange Neues kommt; zählen nicht als Runde (`1399b4b`) |
+| J5 (3 Runden, 420 Blöcke, 224 Erz): Erzliste im Chat abgeschnitten | Ergebnis auf 300 Zeichen gekürzt, volle Itemnamen | Kurznamen (`uranium x29`), Varianten zusammengezählt, meiste zuerst; Grenzen 800 Zeichen (dieser Checkpoint) |
 
 **Lehre:** erst Zustand im Spiel sichtbar machen (diag), dann fixen – nicht raten.
 

@@ -1187,7 +1187,7 @@ test("Szenario: Erzjagd scannt auf der Abbauhoehe, nicht an der Oberflaeche, und
     done()
     local j = w.jobs.state.jobs[job.id]
     eq(j.state, "complete", tostring(j.result or j.reason) .. " | " .. log)
-    assert(j.result:find("iron_ore x4", 1, true), j.result)
+    assert(j.result:find("Erze: iron x4", 1, true), j.result)
     assert(not j.result:find("coal", 1, true), "Kohle an der Oberflaeche liegen gelassen: " .. j.result)
     for k in pairs(bw.dug) do
       local x, y, z = k:match("^(%S+) (%S+) (%S+)$")
@@ -1393,7 +1393,7 @@ test("Szenario: Abbruch auf dem Rueckweg - Zwischenstand gemeldet, Kiste geholt,
   assert(r.cancelled, "Abbruch nie ausgeloest")
   eq(r.job.state, "cancelled")
   assert(r.job.result and r.job.result:find("Bisher Abgebaut", 1, true), tostring(r.job.result))
-  assert(r.job.result:find("iron_ore x2", 1, true), r.job.result)
+  assert(r.job.result:find("iron x2", 1, true), r.job.result)
   eq(r.chestsLeft, nil, "keine Kiste liegen geblieben | " .. r.log)
   eq(r.hasChest, true, "Kiste wieder im Inventar")
   eq(("%d %d %d"):format(r.real.x, r.real.y, r.real.z), "705 71 605", "daheim | " .. r.log)
@@ -1460,11 +1460,45 @@ test("Szenario: Erzjagd folgt einer langen Ader mit bis zu 2 Nachscans", functio
     local j = w.jobs.state.jobs[job.id]
     eq(j.state, "complete", tostring(j.result or j.reason) .. " | " .. log)
     -- Bereich: 727-729, Nachscan 1 bei 729: bis 733, Nachscan 2 bei 733: bis 737 -> 11 Bloecke, dann Schluss
-    assert(j.result:find("iron_ore x11", 1, true), j.result .. " | " .. log)
+    assert(j.result:find("iron x11", 1, true), j.result .. " | " .. log)
     assert(log:find("Nachscan 2:", 1, true), log)
     assert(not log:find("Nachscan 3", 1, true), "hoechstens 2 Nachscans")
     eq(("%d %d %d"):format(real.x, real.y, real.z), "705 71 605", "wieder daheim")
   end)
   undo()
   assert(ok, err)
+end)
+
+test("Mine: Erzliste mit Kurznamen, normal und deepslate zusammen, die meisten zuerst", function()
+  local mine = require("mine")
+  eq(mine.oreShort("mekanism:deepslate_uranium_ore"), "uranium")
+  eq(mine.oreShort("minecraft:iron_ore"), "iron")
+  eq(mine.oreShort("minecraft:ancient_debris"), "ancient debris")
+  eq(mine.oreShort("create:zinc_ore"), "zinc")
+end)
+
+test("Worker: lange Erzliste kommt vollstaendig bei der Zentrale an", function()
+  local w = world()
+  local job = w.jobs:create({ type = "tunnel", params = { length = 3, width = 1, height = 1,
+    start = { x = 710, y = 40, z = 610, f = 0 } } }, "test")
+  local runner, done = realTurtle(w)
+  require("nav").calibrate = function() return true end
+  -- Ergebnis wie bei J5: viele Erzsorten aus verschiedenen Mods
+  local mine = require("mine")
+  local run = mine.run
+  mine.run = function()
+    return "Fertig. Abgebaut: 420 Bloecke, davon 224 Erz und 196 Stein/Sonstiges. Erze: "
+      .. ("uranium x29, lithium x26, sulfur x9, iron x8, lapis x6, silver x5, anthralite x3, "):rep(3)
+      .. "diamond x2"
+  end
+  for _ = 1, 8 do
+    sim.advance(16000)
+    runner.step()
+    if w.jobs.state.jobs[job.id].state == "complete" then break end
+  end
+  mine.run = run
+  done()
+  local j = w.jobs.state.jobs[job.id]
+  eq(j.state, "complete")
+  assert(j.result:find("diamond x2$"), "Ende abgeschnitten: " .. j.result)
 end)

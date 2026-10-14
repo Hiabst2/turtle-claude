@@ -478,10 +478,10 @@ function M.step()
     local success = job.result ~= nil and job.result:find("^Fertig") ~= nil and not job.stop
     local n = sync.getNode()
     if success then
-      n:send("job", "job.complete", { id = job.id, epoch = job.epoch, result = job.result:sub(1, 300) })
+      n:send("job", "job.complete", { id = job.id, epoch = job.epoch, result = job.result:sub(1, 800) })
     else
       n:send("job", "job.fail", { id = job.id, epoch = job.epoch,
-        reason = tostring(job.result or job.stop):sub(1, 300), retry = not job.stop })
+        reason = tostring(job.result or job.stop):sub(1, 800), retry = not job.stop })
     end
     state.job = nil
     save()
