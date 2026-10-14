@@ -33,7 +33,10 @@ if fromBackup then
   printError("Positionsdatei war beschaedigt, Sicherung geladen. Zur Sicherheit: gpsfix")
 end
 if not state then
-  state = { pos = { x = 0, y = 0, z = 0, f = 0 }, home = { x = 0, y = 0, z = 0, f = 0 }, gps = false }
+  -- homeSet = false: der Heimplatz ist nur ein Platzhalter, bis er mit sethome oder von der Zentrale
+  -- gesetzt wird. Sonst wuerde die Stelle, an der die Turtle hingestellt wurde, zum Heimplatz.
+  state = { pos = { x = 0, y = 0, z = 0, f = 0 }, home = { x = 0, y = 0, z = 0, f = 0 }, gps = false,
+    homeSet = false }
   if loadErr == "corrupt" then
     -- Nicht so tun, als waere alles normal: ohne GPS-Flag graebt die Turtle nicht (Zonen), und der
     -- Heimplatz gilt als unbekannt, bis er neu gesetzt wird.
@@ -45,6 +48,8 @@ end
 
 function M.pos() return state.pos end
 function M.home() return state.home end
+-- Wurde der Heimplatz wirklich gesetzt? (aeltere Zustandsdateien ohne homeSet gelten als gesetzt)
+function M.homeKnown() return state.homeSet ~= false and not state.lost end
 -- Lagerplatz zum Ausladen und Tanken. Ohne eigenen Lagerplatz ist es der Heimplatz.
 function M.depot() return state.depot or state.home end
 function M.hasGps() return state.gps end
@@ -56,7 +61,8 @@ end
 function M.where()
   local p, h = state.pos, state.home
   local dirs = state.gps and WORLD_DIRS or REL_DIRS
-  local text = ("Position %s, Blick %s | Zuhause %s%s%s"):format(fmt(p), dirs[p.f], fmt(h),
+  local text = ("Position %s, Blick %s | Zuhause %s%s%s"):format(fmt(p), dirs[p.f],
+    M.homeKnown() and fmt(h) or "nicht gesetzt",
     state.depot and (" | Lager " .. fmt(state.depot)) or "",
     state.gps and " (GPS-Weltkoordinaten)" or " (relativ zum Start, kein GPS)")
   if state.lost then
@@ -273,6 +279,7 @@ end
 function M.setHome(p)
   p = p or state.pos
   state.home = { x = p.x, y = p.y, z = p.z, f = p.f }
+  state.homeSet = true
   state.lost = nil
   save()
 end
@@ -329,8 +336,11 @@ end
 
 local LOST = "Heimplatz unbekannt, weil die Zustandsdatei kaputt war. Erst gpsfix und sethome."
 
+local NOHOME = "Kein Heimplatz gesetzt: sethome, oder an der Zentrale place home <Name> x y z richtung"
+
 function M.goHome(order)
   if state.lost then return false, LOST end
+  if state.homeSet == false then return false, NOHOME end
   local h = state.home
   local ok, err = M.travel(h.x, h.y, h.z, order)
   if ok then M.face(h.f) end
@@ -339,6 +349,7 @@ end
 
 function M.goDepot(order)
   if state.lost and not state.depot then return false, LOST end
+  if state.homeSet == false and not state.depot then return false, NOHOME end
   local d = M.depot()
   local ok, err = M.travel(d.x, d.y, d.z, order)
   if ok then M.face(d.f) end
@@ -519,7 +530,8 @@ function M.calibrate()
     for _ = 1, k do vx, vz = -vz, vx end
     return { x = p1.x + vx, y = p1.y + (t.y - p.y), z = p1.z + vz, f = (t.f + k) % 4 }
   end
-  state.home = convert(h)
+  -- nur einen wirklich gesetzten Heimplatz umrechnen; ein Platzhalter wuerde sonst zur Standort-Kopie
+  if M.homeKnown() then state.home = convert(h) end
   if state.depot then state.depot = convert(state.depot) end
   p.x, p.y, p.z, p.f = p1.x, p1.y, p1.z, wf
   state.gps = true

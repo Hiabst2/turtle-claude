@@ -81,8 +81,9 @@ print("Fertig. Rolle " .. role .. ", Kanal " .. channel .. ".")
 if role == "turtle" then
   print("Naechste Schritte: Turtle an den Heimplatz stellen, sethome, gpsfix, dann reboot.")
 elseif role == "miner" then
-  print("Naechste Schritte: Ender Modem + Geo Scanner ins Inventar, sethome, gpsfix, Zone anlegen,")
-  print("dann reboot: der Worker-Dienst holt sich Auftraege von der Zentrale.")
+  print("Naechste Schritte: Heimplatz an der Zentrale setzen (place home <Name> x y z richtung),")
+  print("Toolbox darunter (Ender Modem, Geo Scanner, Kisten), dann reboot: der Worker misst sich")
+  print("per GPS ein und holt sich Auftraege von der Zentrale.")
 elseif role == "central" then
   print("Neustart startet die Zentrale: reboot. Den Chunk per FTB Chunks dauerhaft laden!")
 elseif role == "command" then

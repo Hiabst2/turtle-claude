@@ -59,7 +59,8 @@ Tests ohne Minecraft: `sh tests/test.sh` (Lua 5.2, CC-Attrappen, simuliertes Fun
 | veraltetes Wissen über die Toolbox | — | Status-Zeile, Nachschauen bei „fehlt“ (`ec12e01`) |
 | Turtle steckt nach Tunnel unter der Erde | Tunnel fuhr nicht heim, Einstieg unbekannt | heimfahren, Einstieg merken, letzte Meldung (`a1f4e7d`) |
 | Turtle fährt in die falsche Richtung | Position/Blickrichtung verloren (z.B. versetzt) | GPS-Einmessen beim Start + Kontrolle, Orte nur mit GPS (`e1eed33`) |
-| „Heimweg gescheitert: über dem Höhenlimit“, obwohl oben frei | kurze Wege (< 9 Blöcke) fuhren direkt seitwärts und wollten durch eine Wand graben | versperrter kurzer Weg → über die Reisehöhe; Meldung nennt Ort und Block (dieser Checkpoint) |
+| „Heimweg gescheitert: über dem Höhenlimit“, obwohl oben frei | kurze Wege (< 9 Blöcke) fuhren direkt seitwärts und wollten durch eine Wand graben | versperrter kurzer Weg → über die Reisehöhe; Meldung nennt Ort und Block (`3f5dd04`) |
+| Heimplatz = Stelle, an der die Turtle hingestellt wurde | Platzhalter-Heimplatz einer neuen Turtle wurde beim GPS-Einmessen zu Weltkoordinaten; Orte der Zentrale bei gleichem Kartenstand nicht neu übernommen | Heimplatz gilt erst nach sethome/place home; Einmessen rechnet nur gesetzte um; Worker holt Orte beim Start frisch (dieser Checkpoint) |
 
 ## Offen / Nächste Schritte
 

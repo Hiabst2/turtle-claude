@@ -50,9 +50,13 @@ local function save() store.save(FILE, state) end
 function M.state() return state end
 
 local function atHome()
+  if not nav.homeKnown() then return false end
   local p, h = nav.pos(), nav.home()
   return p.x == h.x and p.y == h.y and p.z == h.z
 end
+
+-- beim Start die Karte einmal komplett holen (rev 0), damit Lager- und Heimplatz frisch uebernommen werden
+local mapFresh = false
 
 -- Heimfliegen; klappt das nicht (z.B. unter der Erde, nach oben nur Fels ausserhalb der Zone), erst durch
 -- die eigenen Gaenge zum letzten Einstieg (Startpunkt des letzten Auftrags) und von dort heim
@@ -119,7 +123,7 @@ end
 -- bei jedem Sync: Stand der zentralen Karte erfragen, angenommenen Auftrag melden, Fortschritt oder "frei"
 local function hook(n)
   only(n, "map.get")
-  n:send("map", "map.get", { rev = zones.rev() }, { ttl = 120 })
+  n:send("map", "map.get", { rev = mapFresh and zones.rev() or 0 }, { ttl = 120 })
   local job = state.job
   if job and job.result == nil and not job.stop then
     if not job.accepted then
@@ -150,8 +154,9 @@ end
 
 -- neuer Stand vom Map-Dienst: Zonen ersetzen, Lagerplatz und eigenen Heimplatz uebernehmen
 local function applyMap(p)
-  if (tonumber(p.rev) or 0) <= zones.rev() then return end
-  zones.replace(p.zones, p.maxY, p.rev)
+  mapFresh = true
+  -- Zonen nur bei neuem Stand ersetzen; Orte immer uebernehmen (z.B. nach einem Neustart)
+  if (tonumber(p.rev) or 0) > zones.rev() then zones.replace(p.zones, p.maxY, p.rev) end
   local places = type(p.places) == "table" and p.places or {}
   -- Orte sind Weltkoordinaten: nur mit GPS uebernehmen, sonst wuerde die Turtle in die falsche Richtung fahren
   if nav.hasGps() then

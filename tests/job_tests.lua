@@ -719,3 +719,40 @@ test("Nav: Fehlermeldung nennt Ort und Block", function()
   eq(ok, false)
   assert(err:find("bei 1 70 0: minecraft:oak_leaves"), err)
 end)
+
+test("Nav: neu platzierte Turtle hat keinen Heimplatz, GPS-Einmessen erfindet keinen", function()
+  local nav = require("nav") -- keine Zustandsdatei: frisch hingestellt
+  eq(nav.homeKnown(), false)
+  assert(nav.where():find("Zuhause nicht gesetzt"), nav.where())
+  local ok, err = nav.goHome()
+  eq(ok, false) assert(err:find("Kein Heimplatz"), err)
+  -- GPS-Einmessen: Position wird Weltkoordinate, der Heimplatz bleibt unbekannt
+  _G.gps = { locate = function() return 500, 64, 500 end }
+  peripheral.getType = function(side) if side == "right" then return "modem" end end
+  local call = peripheral.call
+  peripheral.call = function(side, m) if side == "right" and m == "isWireless" then return true end end
+  local ok2 = nav.calibrate()
+  peripheral.getType = function() return nil end
+  peripheral.call = call
+  _G.gps = nil
+  eq(ok2, true)
+  eq(nav.homeKnown(), false, "Platzhalter bleibt Platzhalter")
+  nav.setHome()
+  eq(nav.homeKnown(), true)
+end)
+
+test("Worker: holt beim Start Lager und Heimplatz frisch, auch ohne neuen Kartenstand", function()
+  local w = world()
+  w.map:addZone("z", 700, 0, 600, 800, 100, 700)
+  w.map:setPlace("home:Miner1", 730, 40, 640, 3)
+  local runner, done = realTurtle(w)
+  local zones, nav = require("zones"), require("nav")
+  -- die Turtle kennt den Kartenstand schon, aber ihr Heimplatz ist falsch (z.B. beim Hinstellen gesetzt)
+  zones.replace(w.map.state.zones, w.map.state.maxY, w.map.state.rev)
+  nav.setHome({ x = 1, y = 2, z = 3, f = 0 })
+  nav.calibrate = function() return true end
+  for _ = 1, 3 do sim.advance(16000) runner.step() end
+  done()
+  eq(nav.home().x, 730, "Heimplatz von der Zentrale uebernommen")
+  eq(nav.home().f, 3)
+end)
