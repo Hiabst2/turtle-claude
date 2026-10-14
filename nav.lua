@@ -123,11 +123,16 @@ end
 
 -- Graben ----------------------------------------------------------------
 
+-- Namen der Turtle-Funktionen je Richtung; bei jedem Aufruf frisch nachgeschlagen
 local DIG = {
-  front = { turtle.detect, turtle.dig, turtle.inspect },
-  up = { turtle.detectUp, turtle.digUp, turtle.inspectUp },
-  down = { turtle.detectDown, turtle.digDown, turtle.inspectDown },
+  front = { "detect", "dig", "inspect" },
+  up = { "detectUp", "digUp", "inspectUp" },
+  down = { "detectDown", "digDown", "inspectDown" },
 }
+local function digFns(dir)
+  local names = DIG[dir]
+  return turtle[names[1]], turtle[names[2]], turtle[names[3]]
+end
 
 local function falls(name)
   return name:find("gravel") or name:find("sand") or name:find("concrete_powder")
@@ -145,12 +150,17 @@ end
 -- Jeder Abbau wird gegen Zonen, Hoehenlimit und geschuetzte Bloecke geprueft.
 function M.dig(dir)
   dir = dir or "front"
-  local detect, dig, inspect = table.unpack(DIG[dir])
+  local detect, dig, inspect = digFns(dir)
   for _ = 1, 30 do
     if not detect() then return true end
     local found, data = inspect()
     local allowed, why = zones.check(M.target(dir), found and data.name or nil, state.gps)
-    if not allowed then return false, "Darf hier nicht graben: " .. why end
+    if not allowed then
+      -- mit Ort und Block, damit man im Spiel sofort sieht, was im Weg ist
+      local t = M.target(dir)
+      return false, ("Darf hier nicht graben: %s (bei %d %d %d: %s)"):format(why, t.x, t.y, t.z,
+        found and data.name or "?")
+    end
     local ok, why = dig()
     if not ok then return false, why or "nicht abbaubar" end
     M.stats.blocks = M.stats.blocks + 1
@@ -168,7 +178,7 @@ local function moved(dx, dy, dz)
 end
 
 local function go(move, dir, attack, dig, onOk)
-  local detect = DIG[dir][1]
+  local detect = digFns(dir)
   for _ = 1, 30 do
     M.check()
     ensureFuel(1)
@@ -293,7 +303,14 @@ local function climb(x, z)
 end
 
 function M.travel(x, y, z, order)
-  if not far(x, z) then return M.goTo(x, y, z, order or M.HOME_ORDER) end
+  if not far(x, z) then
+    -- kurzer Weg direkt; ist er versperrt (z.B. Wand, Baum ueber dem Hoehenlimit), doch ueber die Reisehoehe
+    local ok, err = M.goTo(x, y, z, order or M.HOME_ORDER)
+    if ok or not tostring(err):find("Darf hier nicht graben", 1, true) then return ok, err end
+    local ok2, err2 = climb(x, z)
+    if not ok2 then return false, err .. " / ueber Reisehoehe: " .. err2 end
+    return M.goTo(x, y, z, "y")
+  end
   local ok, err = climb(x, z)
   if not ok then return false, err end
   return M.goTo(x, y, z, "y")

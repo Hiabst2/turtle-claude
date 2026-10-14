@@ -58,7 +58,8 @@ Tests ohne Minecraft: `sh tests/test.sh` (Lua 5.2, CC-Attrappen, simuliertes Fun
 | Ausrüstung liegt daheim, Turtle woanders | galt als nicht brauchbar | Toolbox zählt, Umweg im Fuel (`e89d299`) |
 | veraltetes Wissen über die Toolbox | — | Status-Zeile, Nachschauen bei „fehlt“ (`ec12e01`) |
 | Turtle steckt nach Tunnel unter der Erde | Tunnel fuhr nicht heim, Einstieg unbekannt | heimfahren, Einstieg merken, letzte Meldung (`a1f4e7d`) |
-| Turtle fährt in die falsche Richtung | Position/Blickrichtung verloren (z.B. versetzt) | GPS-Einmessen beim Start + Kontrolle, Orte nur mit GPS (dieser Checkpoint) |
+| Turtle fährt in die falsche Richtung | Position/Blickrichtung verloren (z.B. versetzt) | GPS-Einmessen beim Start + Kontrolle, Orte nur mit GPS (`e1eed33`) |
+| „Heimweg gescheitert: über dem Höhenlimit“, obwohl oben frei | kurze Wege (< 9 Blöcke) fuhren direkt seitwärts und wollten durch eine Wand graben | versperrter kurzer Weg → über die Reisehöhe; Meldung nennt Ort und Block (dieser Checkpoint) |
 
 ## Offen / Nächste Schritte
 

@@ -686,3 +686,36 @@ test("Worker: ohne GPS werden Orte von der Zentrale nicht uebernommen", function
   eq(nav.home().x, 0, "Heimplatz unveraendert ohne GPS")
   assert(status:find("erst gpsfix"), status)
 end)
+
+test("Nav: kurzer Heimweg durch eine Wand ueber dem Hoehenlimit -> fliegt ueber die Reisehoehe", function()
+  require("store").save("/.nav", { pos = { x = 700, y = 70, z = 600, f = 3 },
+    home = { x = 705, y = 70, z = 600, f = 0 }, gps = true })
+  local nav = require("nav")
+  nav.TRAVEL_Y = 110
+  -- Wand bei x = 702, von y 60 bis 80 (ueber dem Hoehenlimit 50, also nicht abbaubar)
+  local function wall(t) return t.x == 702 and t.z == 600 and t.y >= 60 and t.y <= 80 end
+  local fwd, det, insp = turtle.forward, turtle.detect, turtle.inspect
+  turtle.forward = function() return not wall(nav.target("front")) end
+  turtle.detect = function() return wall(nav.target("front")) end
+  turtle.inspect = function()
+    if wall(nav.target("front")) then return true, { name = "minecraft:stone" } end
+    return false
+  end
+  local ok, err = nav.goHome()
+  turtle.forward, turtle.detect, turtle.inspect = fwd, det, insp
+  assert(ok, tostring(err))
+  local p = nav.pos()
+  eq(("%d %d %d"):format(p.x, p.y, p.z), "705 70 600", "daheim angekommen")
+end)
+
+test("Nav: Fehlermeldung nennt Ort und Block", function()
+  require("store").save("/.nav", { pos = { x = 0, y = 70, z = 0, f = 3 }, home = { x = 0, y = 70, z = 0, f = 0 }, gps = true })
+  local nav = require("nav")
+  local det, insp = turtle.detect, turtle.inspect
+  turtle.detect = function() return true end
+  turtle.inspect = function() return true, { name = "minecraft:oak_leaves" } end
+  local ok, err = nav.dig("front")
+  turtle.detect, turtle.inspect = det, insp
+  eq(ok, false)
+  assert(err:find("bei 1 70 0: minecraft:oak_leaves"), err)
+end)
