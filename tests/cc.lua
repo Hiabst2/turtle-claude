@@ -178,6 +178,8 @@ peripheral = {
 -- Turtle: alles klappt, einzelne Funktionen lassen sich in Tests ueberschreiben
 turtle = setmetatable({
   getFuelLevel = function() return 1000 end,
+  getEquippedLeft = function() return { name = "minecraft:diamond_pickaxe" } end,
+  getEquippedRight = function() return nil end,
   getFuelLimit = function() return 20000 end,
   getSelectedSlot = function() return 1 end,
   getItemDetail = function() return nil end,

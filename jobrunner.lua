@@ -21,9 +21,9 @@ local M = {}
 M.IDLE_INTERVAL = settings.get("worker.idle_interval", 15) -- Sekunden zwischen zwei Leerlauf-Syncs
 M.MIN_FUEL = settings.get("worker.min_fuel", 1000) -- darunter faehrt der Worker im Leerlauf tanken
 M.REFUEL_RETRY = 600 -- Sekunden bis zum naechsten Tankversuch, wenn es nicht geklappt hat
-M.GEAR = { "modem", "geo_scanner", "chest" } -- das soll ein Worker dabeihaben oder daheim in der Toolbox
+M.GEAR = { "modem", "pickaxe", "geo_scanner", "chest" } -- das soll ein Worker dabeihaben oder daheim in der Toolbox
 -- Kurzname -> Teil des Itemnamens
-local PATTERN = { modem = "modem", geo_scanner = "geo_scanner", chest = "minecraft:chest",
+local PATTERN = { modem = "modem", pickaxe = "pickaxe", geo_scanner = "geo_scanner", chest = "minecraft:chest",
   player_detector = "player_detector" }
 M.GEAR_RETRY = 600 -- Sekunden bis zum naechsten Versuch, fehlende Ausruestung zu holen
 M.TOOLBOX_STALE = 600 -- Sekunden: so alt darf das Wissen ueber die Toolbox sein, bevor nachgeschaut wird
@@ -303,16 +303,38 @@ local function runJob(job)
     sync.setJob(job.id .. " " .. job.type)
   end
   local p = job.params or {}
+  local mining = job.type == "orehunt" or job.type == "stripmine" or job.type == "tunnel"
+  if mining then
+    local ok, err = gear.equipPickaxe()
+    if not ok then return "Gestoppt: " .. tostring(err) end
+  end
   if p.start then
-    local ok, err = nav.travel(p.start.x, p.start.y, p.start.z)
+    local s = p.start
+    if mining and not job.chest then
+      -- erst ohne Graben ueber dem Einstieg bis auf den Boden sinken: dort kommt die Zwischenkiste hin
+      -- (neben den Schacht, nicht hinein), dann den Schacht hinunter
+      local ok, err = nav.approach(s.x, s.y, s.z)
+      if not ok then return "Gestoppt: Anfahrt gescheitert: " .. tostring(err) end
+      local opts = {}
+      local placed, why = mine.placeChestBeside(opts, M.say, job.type == "orehunt" and "geo_scanner" or nil)
+      if placed then
+        job.chest, job.stashed = opts.chest, opts.stashed
+        save()
+      else
+        M.say("Zwischenkiste nicht an der Oberflaeche: " .. tostring(why) .. " - kommt an den Einstieg")
+      end
+    end
+    local ok, err = nav.travel(s.x, s.y, s.z)
     if not ok then return "Gestoppt: Anfahrt gescheitert: " .. tostring(err) end
-    nav.face(p.start.f or 0)
+    nav.face(s.f or 0)
     -- Einstieg merken: von hier kommt die Turtle sicher wieder nach oben
     state.lastStart = { x = p.start.x, y = p.start.y, z = p.start.z }
     save()
   end
   if job.type == "orehunt" or job.type == "stripmine" or job.type == "tunnel" then
-    return mine.run(mine[job.type], copyParams(p), M.say)
+    local opts = copyParams(p)
+    opts.chest, opts.stashed = job.chest, job.stashed -- Zwischenkiste steht schon an der Oberflaeche
+    return mine.run(mine[job.type], opts, M.say)
   elseif job.type == "goto" then
     local ok, err = nav.travel(p.x, p.y, p.z)
     return ok and ("Fertig. " .. nav.where()) or ("Gestoppt: " .. tostring(err))

@@ -23,7 +23,7 @@ local function world(o)
   end
   -- ein Worker, der das Protokoll spricht (ohne echte Turtle)
   function w.worker(id, gear)
-    gear = gear or { chest = true }
+    gear = gear or { chest = true, pickaxe = true }
     local node = net.node(id)
     local wk = { node = node, got = {} }
     function wk.idle()
@@ -63,7 +63,7 @@ test("Jobs: Zuteilung nach Ausruestung, dann accept, progress, complete", functi
   local noChest = w.worker(8, { geo_scanner = true })
   noChest.idle()
   eq(noChest.last("job.assign"), nil, "ohne Kiste keine Erzjagd")
-  local scout = w.worker(6, { geo_scanner = true, chest = true })
+  local scout = w.worker(6, { geo_scanner = true, chest = true, pickaxe = true })
   scout.idle()
   local a = scout.last("job.assign")
   assert(a, "keine Zuteilung")
@@ -154,7 +154,7 @@ end)
 test("Jobs: Abbruch erreicht den Worker, Zustand ueberlebt Neustart", function()
   local w = world()
   local job = w.jobs:create({ type = "orehunt", params = { rounds = 2 } }, "t")
-  local a = w.worker(5, { geo_scanner = true, chest = true })
+  local a = w.worker(5, { geo_scanner = true, chest = true, pickaxe = true })
   a.idle()
   local asg = a.last("job.assign")
   a.say("job.accept", { id = asg.id, epoch = asg.epoch })
@@ -295,13 +295,13 @@ test("Jobs: zu wenig Fuel -> Auftrag geht an einen anderen Worker", function()
   local w = world()
   local job = w.jobs:create({ type = "tunnel", params = { length = 50, start = { x = 300, y = 40, z = 0 } } }, "t")
   local poor = w.worker(5)
-  poor.node:send("job", "worker.idle", { role = "miner", gear = { chest = true }, pos = { x = 0, y = 40, z = 0 }, fuel = 300 })
+  poor.node:send("job", "worker.idle", { role = "miner", gear = { chest = true, pickaxe = true }, pos = { x = 0, y = 40, z = 0 }, fuel = 300 })
   poor.node:flush()
   w.step()
   poor.read()
   eq(poor.last("job.assign"), nil, "300 Fuel reichen nicht")
   local rich = w.worker(6)
-  rich.node:send("job", "worker.idle", { role = "miner", gear = { chest = true }, pos = { x = 0, y = 40, z = 0 }, fuel = 20000 })
+  rich.node:send("job", "worker.idle", { role = "miner", gear = { chest = true, pickaxe = true }, pos = { x = 0, y = 40, z = 0 }, fuel = 20000 })
   rich.node:flush()
   w.step()
   rich.read()
@@ -486,7 +486,7 @@ end)
 test("Jobs: Worker erfaehrt, warum er nichts bekommt", function()
   local w = world()
   w.jobs:create({ type = "orehunt" }, "t")
-  local a = w.worker(5, { chest = true })
+  local a = w.worker(5, { chest = true, pickaxe = true })
   a.idle()
   local none = a.last("job.none")
   assert(none and none.reasons:find("J1: fehlt geo_scanner"), none and none.reasons)
@@ -975,4 +975,145 @@ test("Worker: Tippfehler im Namen an der Zentrale wird angezeigt", function()
   local status = table.concat(runner.status(), " | ")
   done()
   assert(status:find("keinen Heimplatz fuer 'Miner1' (nur home:Miner1x - Tippfehler?)", 1, true), status)
+end)
+
+-- Klotzwelt: unter Y 70 Stein, darueber Luft; Turtle mit echtem Inventar, Ausruestung und Kisten
+local function blockWorld(real, inv, ground)
+  local placed, dug, chests = {}, {}, {}
+  local left, right = nil, { name = "computercraft:wireless_modem_advanced" }
+  local sel = 1
+  local function key(x, y, z) return x .. " " .. y .. " " .. z end
+  local function blockAt(x, y, z)
+    local k = key(x, y, z)
+    if placed[k] then return placed[k] end
+    if dug[k] then return nil end
+    if y <= ground then return "minecraft:stone" end
+  end
+  local function at(dir)
+    if dir == "up" then return real.x, real.y + 1, real.z end
+    if dir == "down" then return real.x, real.y - 1, real.z end
+    return real.x + WDX[real.f], real.y, real.z + WDZ[real.f]
+  end
+  local function freeSlot() for s = 1, 16 do if not inv[s] then return s end end end
+  local saved = {}
+  for k, f in pairs(turtle) do saved[k] = f end
+  local w = { placed = placed, chests = chests, inv = inv }
+  function w.left() return left end
+  local undoPhys = physical(real)
+  local function mover(dir, move)
+    local fn = turtle[move]
+    return function()
+      if blockAt(at(dir)) then return false, "Movement obstructed" end
+      return fn()
+    end
+  end
+  turtle.forward, turtle.up, turtle.down = mover("front", "forward"), mover("up", "up"), mover("down", "down")
+  for dir, suffix in pairs({ front = "", up = "Up", down = "Down" }) do
+    turtle["detect" .. suffix] = function() return blockAt(at(dir)) ~= nil end
+    turtle["inspect" .. suffix] = function()
+      local n = blockAt(at(dir))
+      if n then return true, { name = n } end
+      return false, "No block to inspect"
+    end
+    turtle["dig" .. suffix] = function()
+      local x, y, z = at(dir)
+      local n = blockAt(x, y, z)
+      if not n then return false, "Nothing to dig here" end
+      if not (left and left.name:find("pickaxe")) then return false, "No tool to dig with" end
+      local k = key(x, y, z)
+      if chests[k] then
+        local s = freeSlot()
+        inv[s] = { name = "minecraft:chest", count = 1 }
+        chests[k] = nil
+      end
+      placed[k], dug[k] = nil, true
+      return true
+    end
+    turtle["place" .. suffix] = function()
+      local x, y, z = at(dir)
+      if blockAt(x, y, z) or not inv[sel] then return false, "Cannot place block here" end
+      local k = key(x, y, z)
+      placed[k], dug[k] = inv[sel].name, nil
+      if inv[sel].name == "minecraft:chest" then chests[k] = {} end
+      inv[sel] = nil
+      return true
+    end
+    turtle["drop" .. suffix] = function()
+      if not inv[sel] then return false end
+      local c = chests[key(at(dir))]
+      if c then c[#c + 1] = inv[sel] end
+      inv[sel] = nil
+      return true
+    end
+    turtle["suck" .. suffix] = function()
+      local c = chests[key(at(dir))]
+      if not c or #c == 0 then return false end
+      inv[freeSlot()] = table.remove(c, 1)
+      return true
+    end
+  end
+  turtle.select = function(s) sel = s return true end
+  turtle.getSelectedSlot = function() return sel end
+  turtle.getItemDetail = function(s) local i = inv[s or sel] return i and { name = i.name, count = i.count } end
+  turtle.getItemCount = function(s) local i = inv[s or sel] return i and i.count or 0 end
+  turtle.equipLeft = function() inv[sel], left = left, inv[sel] return true end
+  turtle.getEquippedLeft = function() return left end
+  turtle.getEquippedRight = function() return right end
+  turtle.attack, turtle.attackUp, turtle.attackDown = function() return false end, function() return false end,
+    function() return false end
+  turtle.getFuelLevel = function() return 20000 end
+  return w, function()
+    undoPhys()
+    for k in pairs(turtle) do turtle[k] = nil end
+    for k, f in pairs(saved) do turtle[k] = f end
+  end
+end
+
+test("Szenario: Tunnel - Spitzhacke nur im Inventar, Zwischenkiste an der Oberflaeche neben dem Schacht", function()
+  local w = world()
+  w.map:addZone("z", 700, 0, 600, 800, 100, 700)
+  w.map:setMaxY(100)
+  local job = w.jobs:create({ type = "tunnel", params = { length = 3, width = 1, height = 1,
+    start = { x = 710, y = 60, z = 610, f = 0 } } }, "test")
+  local HOMEP = { x = 705, y = 71, z = 605, f = 0 }
+  local real = { x = 705, y = 71, z = 605, f = 0 }
+  local inv = { [1] = { name = "minecraft:diamond_pickaxe", count = 1 }, [2] = { name = "minecraft:chest", count = 1 } }
+  local bw, undo = blockWorld(real, inv, 70)
+  local ok, err = pcall(function()
+    local runner, done = realTurtle(w, { pos = { x = 705, y = 71, z = 605, f = 0 }, home = HOMEP, gps = true })
+    -- realTurtle ersetzt Inventar und Fuel; hier gilt die Klotzwelt
+    turtle.getItemDetail = function(s) local i = inv[s] return i and { name = i.name, count = i.count } end
+    turtle.getEquippedRight = function() return { name = "computercraft:wireless_modem_advanced" } end
+    turtle.getFuelLevel = function() return 20000 end
+    local chestSeen, states = nil, {}
+    local say = runner.say
+    runner.say = function(t)
+      if tostring(t):find("Oberflaeche abgestellt") then
+        for k in pairs(bw.chests) do chestSeen = k end
+      end
+      say(t)
+    end
+    for _ = 1, 15 do
+      sim.advance(16000)
+      states[#states + 1] = runner.step()
+      if w.jobs.state.jobs[job.id].state == "complete" or w.jobs.state.jobs[job.id].state == "failed" then break end
+    end
+    runner.say = say
+    local status = table.concat(runner.status(), " | ")
+    done()
+    local j = w.jobs.state.jobs[job.id]
+    eq(j.state, "complete", tostring(j.result or j.reason) .. " | " .. table.concat(states, ",") .. " | " .. status)
+    assert(bw.left() and bw.left().name:find("pickaxe"), "Spitzhacke selbst angelegt")
+    assert(chestSeen, "Kiste wurde nie abgestellt | " .. status)
+    local cy = tonumber(chestSeen:match("^%S+ (%S+)"))
+    eq(cy, 71, "Kiste an der Oberflaeche (Boden Y 70), nicht im Schacht")
+    assert(not chestSeen:find("^710 %S+ 610$"), "Kiste nicht im Schacht: " .. chestSeen)
+    eq(next(bw.chests), nil, "Kiste am Ende wieder abgebaut")
+    local hasChest = false
+    for _, i in pairs(inv) do if i.name == "minecraft:chest" then hasChest = true end end
+    assert(hasChest, "Kiste wieder im Inventar")
+    eq(("%d %d %d"):format(real.x, real.y, real.z), "705 71 605", "wieder daheim")
+  end)
+  undo()
+  assert(ok, err)
 end)

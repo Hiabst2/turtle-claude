@@ -21,7 +21,8 @@ M.LEASE = 300 -- Sekunden (5 x Sync-Intervall)
 M.MAX_ATTEMPTS = 3
 M.TYPES = { orehunt = true, stripmine = true, tunnel = true, ["goto"] = true, gohome = true }
 -- Mining-Auftraege nur mit Kiste als Zwischenspeicher, Erzjagd zusaetzlich mit Geo Scanner
-M.REQUIRES = { orehunt = { "geo_scanner", "chest" }, stripmine = { "chest" }, tunnel = { "chest" } }
+M.REQUIRES = { orehunt = { "pickaxe", "geo_scanner", "chest" }, stripmine = { "pickaxe", "chest" },
+  tunnel = { "pickaxe", "chest" } }
 
 local ACTIVE = { assigned = true, accepted = true, running = true }
 local FINAL = { complete = true, failed = true, cancelled = true }

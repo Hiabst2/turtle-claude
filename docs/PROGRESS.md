@@ -43,7 +43,7 @@ Szenario-Tests (`Szenario: ...` in `tests/job_tests.lua`): Turtle mit **wirklich
 
 ## Heimplatz-Aufbau eines Workers
 
-- Turtle steht auf dem Heimplatz, **darunter die Toolbox** (Ender Modem, Geo Scanner, Kisten)
+- Turtle steht auf dem Heimplatz, **darunter die Toolbox** (Ender Modem, Spitzhacke, Geo Scanner, Kisten)
 - darüber frei bis Reisehöhe Y 110
 - Heimplatz an der Zentrale: `place home <Label> <x> <y> <z> <richtung>` (Koordinaten der Turtle, nicht der Kiste; Richtung = wohin sie schaut)
 - Lager: `place depot ...` (Connector hinter der Turtle, Kohle-Connector daneben/darunter)
@@ -64,7 +64,9 @@ Szenario-Tests (`Szenario: ...` in `tests/job_tests.lua`): Turtle mit **wirklich
 | Heimplatz = Stelle, an der die Turtle hingestellt wurde | Platzhalter-Heimplatz einer neuen Turtle wurde beim GPS-Einmessen zu Weltkoordinaten; Orte der Zentrale bei gleichem Kartenstand nicht neu übernommen | Heimplatz gilt erst nach sethome/place home; Einmessen rechnet nur gesetzte um; Worker holt Orte beim Start frisch (`587ac8e`) |
 | Heimplatz 30 Blöcke unter dem Start | Turtle mit GPS wurde versetzt; beim Einmessen wurde der schon absolute Heimplatz um die Versatz-Strecke mitverschoben | Heim-/Lagerplatz nur beim ersten Einmessen (vorher relativ) umrechnen (`cfe1c88`) |
 | derselbe Fehler nach dem Fix | falscher Heimplatz stand noch in der Turtle; beim Start flog sie dorthin, **bevor** der richtige von der Zentrale ankam. Neue Turtle: Heimplatz kam spaeter, nächster Versuch erst nach 10 min | erst Karte holen (`full`, auch bei Stand 0), dann fahren; neuer Heimplatz → sofort hin und Toolbox neu anschauen. Szenario-Tests mit nachgebildeter Welt (`18348a1`) |
-| immer noch: Heimplatz falsch | **Tippfehler**: Turtle heißt `Hiabstz`, an der Zentrale stand `home:Hiabszt` → Heimplatz kam nie an, Turtle nutzte den alten (durch den Einmess-Fehler verschobenen) aus ihrer Datei | Herkunft sichtbar (`[von: ...]`, `/.homelog`, `diag`, `place list`) (`ce7f193`); Turtle meldet fehlenden/vertippten Heimplatz (dieser Checkpoint) |
+| immer noch: Heimplatz falsch | **Tippfehler**: Turtle heißt `Hiabstz`, an der Zentrale stand `home:Hiabszt` → Heimplatz kam nie an, Turtle nutzte den alten (durch den Einmess-Fehler verschobenen) aus ihrer Datei | Herkunft sichtbar (`[von: ...]`, `/.homelog`, `diag`, `place list`) (`ce7f193`); Turtle meldet fehlenden/vertippten Heimplatz (`dbb2353`) |
+| "No tool" mit Spitzhacke im Inventar | Spitzhacke musste fest ausgerüstet sein | Spitzhacke zählt als Ausrüstung (dabei, im Inventar oder Toolbox), wird selbst angelegt (Seite ohne Modem) (dieser Checkpoint) |
+| Zwischenkiste fehlte / stand im Schacht | Kiste wurde am Einstieg unten abgestellt, Fehler beim Abstellen still ignoriert | Worker senkt sich ohne Graben bis zum Boden, stellt die Kiste **neben** den Schacht an die Oberfläche, holt sie am Ende wieder; geht das nicht, unten – und klappt auch das nicht, stoppt der Auftrag mit Grund (dieser Checkpoint) |
 
 **Lehre:** erst Zustand im Spiel sichtbar machen (diag), dann fixen – nicht raten.
 

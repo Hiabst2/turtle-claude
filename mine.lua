@@ -109,7 +109,7 @@ end
 -- Heimweg: erst zurueck zum Startpunkt des Auftrags (durch die eigenen Gaenge), dann heim.
 local function tripHome(ctx)
   local s = ctx.start
-  must(nav.goTo(s.x, s.y, s.z, ctx.order))
+  if not ctx.surfaced then must(nav.goTo(s.x, s.y, s.z, ctx.order)) end
   must(nav.goHome())
 end
 
@@ -121,7 +121,7 @@ end
 
 local function tripDepot(ctx)
   local s = ctx.start
-  must(toPoint(ctx, s, ctx.order))
+  if not ctx.surfaced then must(toPoint(ctx, s, ctx.order)) end -- schon oben (Kiste an der Oberflaeche geholt)
   must(nav.goDepot())
 end
 
@@ -181,26 +181,9 @@ local function newCtx(say, junk, savedStart)
   return { start = start, order = perp .. main .. "y", ores = {}, say = say or function() end, junk = junk ~= false }
 end
 
--- Zwischenkiste: liegt eine Kiste im Inventar, stellt die Turtle sie beim Start unter sich ab und legt dort
--- die Ausruestung ab, die sie beim Minen nicht braucht. Die Kiste ist eine Truhe und damit geschuetzt,
--- waehrend des Auftrags wird sie also nicht angefasst. Am Ende holt die Turtle alles raus und baut sie ab.
-local function placeChest(ctx, opts, kind, keep)
-  if opts.chest then return end -- steht schon (Auftrag wird fortgesetzt)
-  local slot = gear.findSlot("minecraft:chest")
-  if not slot then return end
-  if turtle.detectDown() and not nav.dig("down") then
-    ctx.say("Kein Platz fuer die Zwischenkiste, mache ohne weiter.")
-    return
-  end
+-- Ausruestung, die beim Minen nicht gebraucht wird, in die Zwischenkiste legen (drop = turtle.drop/dropDown)
+local function stash(opts, keep, drop)
   local sel = turtle.getSelectedSlot()
-  turtle.select(slot)
-  if not turtle.placeDown() then
-    turtle.select(sel)
-    return
-  end
-  local p = nav.pos()
-  opts.chest = { x = p.x, y = p.y - 1, z = p.z }
-
   local stashed = 0
   for s = 1, 16 do
     local item = turtle.getItemDetail(s)
@@ -208,11 +191,73 @@ local function placeChest(ctx, opts, kind, keep)
       and not item.name:find("chat_box", 1, true) and not (keep and item.name:find(keep, 1, true))
       and not (sync.enabled() and item.name:find("modem", 1, true)) then
       turtle.select(s)
-      if turtle.dropDown() then stashed = stashed + 1 end
+      if drop() then stashed = stashed + 1 end
     end
   end
   turtle.select(sel)
   opts.stashed = stashed
+  return stashed
+end
+
+-- Zwischenkiste an der Oberflaeche NEBEN den Einstieg stellen (die Turtle steht ueber dem Schacht).
+-- Nur auf einen freien Platz, gegraben wird dafuer nicht. Liefert true oder false, Grund.
+function M.placeChestBeside(opts, say, keep)
+  local slot = gear.findSlot("minecraft:chest")
+  if not slot then return false, "keine Kiste dabei" end
+  local p = nav.pos()
+  local f0 = p.f
+  local sel = turtle.getSelectedSlot()
+  for i = 0, 3 do
+    nav.face((f0 + i) % 4)
+    if not turtle.detect() then
+      turtle.select(slot)
+      if turtle.place() then
+        turtle.select(sel)
+        local t = nav.target("front")
+        opts.chest = { x = t.x, y = t.y, z = t.z, f = nav.pos().f, stand = { x = p.x, y = p.y, z = p.z } }
+        local n = stash(opts, keep, turtle.drop)
+        if say then say(("Zwischenkiste an der Oberflaeche abgestellt (%d %d %d), %d Teile abgelegt."):format(
+          t.x, t.y, t.z, n)) end
+        return true
+      end
+      turtle.select(sel)
+    end
+  end
+  nav.face(f0)
+  return false, "ringsum kein freier Platz"
+end
+
+-- Zwischenkiste: liegt eine Kiste im Inventar, stellt die Turtle sie beim Start unter sich ab und legt dort
+-- die Ausruestung ab, die sie beim Minen nicht braucht. Die Kiste ist eine Truhe und damit geschuetzt,
+-- waehrend des Auftrags wird sie also nicht angefasst. Am Ende holt die Turtle alles raus und baut sie ab.
+-- Worker stellen sie vorher schon an der Oberflaeche ab (placeChestBeside), dann steht sie hier schon.
+local function placeChest(ctx, opts, kind, keep)
+  if opts.chest then return end -- steht schon (an der Oberflaeche oder Auftrag wird fortgesetzt)
+  local slot = gear.findSlot("minecraft:chest")
+  if not slot then
+    if opts.keep_gear then error("keine Zwischenkiste dabei (ist Pflicht)", 0) end
+    return
+  end
+  if turtle.detectDown() then
+    local ok, why = nav.dig("down")
+    if not ok then
+      if opts.keep_gear then error("kein Platz fuer die Zwischenkiste: " .. tostring(why), 0) end
+      ctx.say("Kein Platz fuer die Zwischenkiste, mache ohne weiter.")
+      return
+    end
+  end
+  local sel = turtle.getSelectedSlot()
+  turtle.select(slot)
+  local placed, why = turtle.placeDown()
+  turtle.select(sel)
+  if not placed then
+    if opts.keep_gear then error("Zwischenkiste laesst sich nicht abstellen: " .. tostring(why), 0) end
+    ctx.say("Zwischenkiste laesst sich nicht abstellen, mache ohne weiter.")
+    return
+  end
+  local p = nav.pos()
+  opts.chest = { x = p.x, y = p.y - 1, z = p.z }
+  local stashed = stash(opts, keep, turtle.dropDown)
   saveJob(kind, opts)
   ctx.say(("Zwischenkiste abgestellt, %d Teile abgelegt."):format(stashed))
 end
@@ -223,11 +268,21 @@ local function retrieveChest(ctx, opts)
   local need = (opts.stashed or 0) + 2
   if nav.freeSlots() < need and ctx.junk then nav.dropJunk() end
   if nav.freeSlots() < need then unloadAndReturn(ctx) end
-  must(toPoint(ctx, { x = c.x, y = c.y + 1, z = c.z }, ctx.order))
-  local ok, data = turtle.inspectDown()
+  local suck, dig, inspect = turtle.suckDown, turtle.digDown, turtle.inspectDown
+  if c.stand then
+    -- an der Oberflaeche: zurueck zum Einstieg, den Schacht hoch, Kiste steht daneben
+    must(toPoint(ctx, ctx.start, ctx.order))
+    must(nav.goTo(c.stand.x, c.stand.y, c.stand.z, "yxz"))
+    nav.face(c.f)
+    suck, dig, inspect = turtle.suck, turtle.dig, turtle.inspect
+    ctx.surfaced = true
+  else
+    must(toPoint(ctx, { x = c.x, y = c.y + 1, z = c.z }, ctx.order))
+  end
+  local ok, data = inspect()
   if ok and data.name:find("chest", 1, true) then
-    while turtle.suckDown() do end
-    turtle.digDown() -- die eigene Kiste darf sie abbauen, darum direkt und nicht ueber nav.dig
+    while suck() do end
+    dig() -- die eigene Kiste darf sie abbauen, darum direkt und nicht ueber nav.dig
   end
   opts.chest = nil
   ctx.say("Zwischenkiste wieder eingepackt.")

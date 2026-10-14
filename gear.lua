@@ -10,6 +10,7 @@ M.ITEMS = {
   geo_scanner = "geo_scanner",
   player_detector = "player_detector",
   modem = "modem",
+  pickaxe = "pickaxe",
   environment_detector = "environment_detector",
 }
 
@@ -33,21 +34,62 @@ function M.wirelessEquipped()
   end
 end
 
--- Hat die Turtle das Teil? Im Inventar oder (beim Modem) fest ausgeruestet
-function M.has(pattern)
-  if M.findSlot(pattern) then return true end
-  return pattern == "modem" and M.wirelessEquipped() ~= nil
+-- Was ist auf einer Seite ausgeruestet? Itemname, "" fuer leer, nil wenn die CC-Version das nicht verraet
+local function equipped(side)
+  local fn = side == "left" and turtle.getEquippedLeft or turtle.getEquippedRight
+  if not fn then return nil end
+  local item = fn()
+  if item == nil then return "" end
+  if type(item) == "table" and item.name then return item.name end
+  return nil
 end
 
--- Seite fuer den Tausch: nie die Chat Box
-local function toolSide()
-  if peripheral.getType("left") == "chatBox" then return "right" end
-  if peripheral.getType("right") == "chatBox" then return "left" end
-  if turtle.getEquippedRight then
-    local r = turtle.getEquippedRight()
-    if r and r.name:find("pickaxe", 1, true) then return "right" end
+-- Spitzhacke ausgeruestet? Seite oder nil
+function M.pickaxeSide()
+  for _, side in ipairs({ "left", "right" }) do
+    local name = equipped(side)
+    if name and name:find("pickaxe", 1, true) then return side end
   end
-  return "left"
+end
+
+-- Hat die Turtle das Teil? Im Inventar oder (Modem, Spitzhacke) fest ausgeruestet
+function M.has(pattern)
+  if M.findSlot(pattern) then return true end
+  if pattern == "modem" then return M.wirelessEquipped() ~= nil end
+  if pattern == "pickaxe" then
+    if M.pickaxeSide() then return true end
+    -- aeltere CC-Version ohne getEquipped*: nicht pruefbar, als vorhanden annehmen
+    return turtle.getEquippedLeft == nil
+  end
+  return false
+end
+
+-- Seiten, die nie getauscht werden: Chat Box und Funkmodem (sonst kein Chat bzw. kein Funk)
+local function fixed(side)
+  local t = peripheral.getType(side)
+  if t == "chatBox" then return true end
+  return t == "modem" and peripheral.call(side, "isWireless") == true
+end
+
+-- Seite fuer den Tausch
+local function toolSide()
+  if fixed("left") then return "right" end
+  if fixed("right") then return "left" end
+  return M.pickaxeSide() or "left"
+end
+
+-- Spitzhacke aus dem Inventar anlegen, falls keine dran ist (auf der Seite ohne Modem/Chat Box)
+function M.equipPickaxe()
+  if M.pickaxeSide() then return true end
+  local slot = M.findSlot("pickaxe")
+  if not slot then return false, "keine Spitzhacke dabei (liegt sie daheim in der Toolbox?)" end
+  local side = toolSide()
+  local sel = turtle.getSelectedSlot()
+  turtle.select(slot)
+  local ok = (side == "left" and turtle.equipLeft or turtle.equipRight)()
+  turtle.select(sel)
+  if not ok then return false, "Spitzhacke laesst sich nicht anlegen" end
+  return true
 end
 
 -- Legt das Item kurz an, ruft fn(peripheral) auf und legt danach wieder die alte Ausruestung an.
@@ -188,6 +230,7 @@ function M.toolboxContents()
     if n:find("geo_scanner", 1, true) then found.geo_scanner = true
     elseif n:find("player_detector", 1, true) then found.player_detector = true
     elseif n:find("modem", 1, true) then found.modem = true
+    elseif n:find("pickaxe", 1, true) then found.pickaxe = true
     elseif n == "minecraft:chest" then found.chest = true end
   end
   return found
