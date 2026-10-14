@@ -38,30 +38,54 @@ end
 local function equipped(side)
   local fn = side == "left" and turtle.getEquippedLeft or turtle.getEquippedRight
   if not fn then return nil end
-  local item = fn()
+  local ok, item = pcall(fn)
+  if not ok then return nil end
   if item == nil then return "" end
-  if type(item) == "table" and item.name then return item.name end
+  if type(item) == "table" then return tostring(item.name or item.id or "") end
+  if type(item) == "string" then return item end
   return nil
+end
+M.equipped = equipped
+
+-- Peripheral-Typ, unter dem ein ausgeruestetes Teil auftaucht (falls getEquipped* nichts verraet)
+local PTYPE = { geo_scanner = "geoScanner", player_detector = "playerDetector", chat_box = "chatBox",
+  environment_detector = "environmentDetector", modem = "modem" }
+
+-- Auf welcher Seite ist ein Teil ausgeruestet? "left"/"right" oder nil.
+-- Gilt fuer ALLE Teile: erst der Itemname (getEquipped*), dann der Peripheral-Typ.
+function M.equippedSide(pattern)
+  for _, side in ipairs({ "left", "right" }) do
+    local name = equipped(side)
+    if name and name ~= "" and name:find(pattern, 1, true) then return side end
+  end
+  for short, ptype in pairs(PTYPE) do
+    if pattern:find(short, 1, true) or short:find(pattern, 1, true) then
+      for _, side in ipairs({ "left", "right" }) do
+        if peripheral.getType(side) == ptype then
+          if ptype ~= "modem" or peripheral.call(side, "isWireless") == true then return side end
+        end
+      end
+    end
+  end
 end
 
 -- Spitzhacke ausgeruestet? Seite oder nil
-function M.pickaxeSide()
-  for _, side in ipairs({ "left", "right" }) do
-    local name = equipped(side)
-    if name and name:find("pickaxe", 1, true) then return side end
-  end
-end
+function M.pickaxeSide() return M.equippedSide("pickaxe") end
 
--- Hat die Turtle das Teil? Im Inventar oder (Modem, Spitzhacke) fest ausgeruestet
+-- Hat die Turtle das Teil? Im Inventar ODER ausgeruestet (fuer alle Teile gleich)
 function M.has(pattern)
   if M.findSlot(pattern) then return true end
-  if pattern == "modem" then return M.wirelessEquipped() ~= nil end
-  if pattern == "pickaxe" then
-    if M.pickaxeSide() then return true end
-    -- aeltere CC-Version ohne getEquipped*: nicht pruefbar, als vorhanden annehmen
-    return turtle.getEquippedLeft == nil
-  end
+  if M.equippedSide(pattern) then return true end
+  -- aeltere CC-Version ohne getEquipped*: Spitzhacke nicht pruefbar, als vorhanden annehmen
+  if pattern == "pickaxe" and turtle.getEquippedLeft == nil then return true end
   return false
+end
+
+-- Wo ist das Teil? "links"/"rechts" (ausgeruestet), "Inventar" oder nil - fuer Status und diag
+function M.where(pattern)
+  local side = M.equippedSide(pattern)
+  if side then return side == "left" and "links" or "rechts" end
+  if M.findSlot(pattern) then return "Inventar" end
 end
 
 -- Seiten, die nie getauscht werden: Chat Box und Funkmodem (sonst kein Chat bzw. kein Funk)
@@ -82,7 +106,12 @@ end
 function M.equipPickaxe()
   if M.pickaxeSide() then return true end
   local slot = M.findSlot("pickaxe")
-  if not slot then return false, "keine Spitzhacke dabei (liegt sie daheim in der Toolbox?)" end
+  if not slot then
+    -- CC-Version ohne getEquipped*: sehen koennen wir die Spitzhacke nicht, also annehmen, dass sie dran ist
+    -- (fehlt sie wirklich, meldet das Graben "No tool")
+    if turtle.getEquippedLeft == nil then return true end
+    return false, "keine Spitzhacke dabei, weder ausgeruestet noch im Inventar (Toolbox?)"
+  end
   local side = toolSide()
   local sel = turtle.getSelectedSlot()
   turtle.select(slot)
@@ -93,9 +122,19 @@ function M.equipPickaxe()
 end
 
 -- Legt das Item kurz an, ruft fn(peripheral) auf und legt danach wieder die alte Ausruestung an.
+-- Ist es schon ausgeruestet, wird es einfach benutzt.
 function M.with(pattern, fn)
+  local already = M.equippedSide(pattern)
+  if already then
+    local p = peripheral.wrap(already)
+    if p then
+      local res = table.pack(pcall(fn, p))
+      if not res[1] then return nil, tostring(res[2]) end
+      return table.unpack(res, 2, res.n)
+    end
+  end
   local slot = M.findSlot(pattern)
-  if not slot then return nil, "kein " .. pattern .. " im Inventar (Ausruestung holen?)" end
+  if not slot then return nil, "kein " .. pattern .. " dabei (weder ausgeruestet noch im Inventar)" end
   local side = toolSide()
   local equip = side == "left" and turtle.equipLeft or turtle.equipRight
   local sel = turtle.getSelectedSlot()

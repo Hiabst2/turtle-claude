@@ -1190,3 +1190,48 @@ test("Szenario: Erzjagd scannt auf der Abbauhoehe, nicht an der Oberflaeche, und
   undo()
   assert(ok, err)
 end)
+
+test("Gear: ausgeruestet zaehlt fuer alle Teile wie im Inventar", function()
+  local gear = require("gear")
+  local gl, gr, gt, wrap, eqL = turtle.getEquippedLeft, turtle.getEquippedRight, peripheral.getType, peripheral.wrap,
+    turtle.equipLeft
+  turtle.getItemDetail = function() return nil end -- Inventar leer
+  turtle.getEquippedLeft = function() return { name = "advancedperipherals:geo_scanner", count = 1 } end
+  turtle.getEquippedRight = function() return { name = "minecraft:diamond_pickaxe", count = 1 } end
+  peripheral.getType = function(side) if side == "left" then return "geoScanner" end end
+  local swapped = false
+  turtle.equipLeft = function() swapped = true return true end
+  peripheral.wrap = function(side) if side == "left" then return { scan = function() return { "ok" } end } end end
+  local ok, err = pcall(function()
+    eq(gear.has("pickaxe"), true, "Spitzhacke rechts")
+    eq(gear.where("pickaxe"), "rechts")
+    eq(gear.has("geo_scanner"), true, "Scanner links")
+    eq(gear.equipPickaxe(), true)
+    local res = gear.with("geo_scanner", function(g) return g.scan(8) end)
+    eq(res and res[1], "ok", "ausgeruesteten Scanner direkt benutzt")
+    eq(swapped, false, "nichts getauscht")
+    eq(gear.has("player_detector"), false)
+    -- Scanner nur als Peripheral erkennbar (getEquipped verraet nichts)
+    turtle.getEquippedLeft = function() return true end
+    eq(gear.has("geo_scanner"), true, "ueber den Peripheral-Typ")
+  end)
+  turtle.getEquippedLeft, turtle.getEquippedRight, peripheral.getType, peripheral.wrap, turtle.equipLeft = gl, gr, gt,
+    wrap, eqL
+  assert(ok, err)
+end)
+
+test("Gear: CC-Version ohne getEquipped* -> Spitzhacke gilt als vorhanden", function()
+  local gear = require("gear")
+  local mt = getmetatable(turtle)
+  local gl, gr = rawget(turtle, "getEquippedLeft"), rawget(turtle, "getEquippedRight")
+  setmetatable(turtle, nil)
+  turtle.getEquippedLeft, turtle.getEquippedRight = nil, nil
+  turtle.getItemDetail = function() return nil end
+  local ok, err = pcall(function()
+    eq(gear.has("pickaxe"), true)
+    eq(gear.equipPickaxe(), true, "nicht 'keine Spitzhacke dabei' melden")
+  end)
+  turtle.getEquippedLeft, turtle.getEquippedRight = gl, gr
+  setmetatable(turtle, mt)
+  assert(ok, err)
+end)

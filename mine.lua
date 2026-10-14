@@ -469,7 +469,7 @@ function M.orehunt(opts, say)
   local ctx = newCtx(say, opts.drop_junk, opts.start)
   local fwd = ctx.start.f
   opts.start = ctx.start
-  if not gear.findSlot("geo_scanner") then error("kein Geo Scanner dabei, erst Ausruestung holen", 0) end
+  if not gear.has("geo_scanner") then error("kein Geo Scanner dabei, erst Ausruestung holen", 0) end
   resumeAt(ctx)
   saveJob("orehunt", opts)
   placeChest(ctx, opts, "orehunt", "geo_scanner")

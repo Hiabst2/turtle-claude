@@ -39,6 +39,7 @@ Szenario-Tests (`Szenario: ...` in `tests/job_tests.lua`): Turtle mit **wirklich
 - **TurtleMQ at-least-once:** speichern → ACK → verarbeiten; Doppelte über die id erkannt. ACK pro Strecke (`hop`).
 - **Turtles = Sync-Geräte:** Post nur beim Kontakt, Ende mit `mq.done`; keine Funksprüche auf Verdacht.
 - **Zentrale** auf eigenem Computer; **All-in-one-Turtle** bekommt keine neuen Funktionen mehr.
+- **Ausrüstung:** jedes Teil zählt als vorhanden, ob ausgerüstet, im Inventar oder in der Toolbox daheim.
 - **Worker:** Kiste als Zwischenspeicher ist Pflicht für Mining-Aufträge; was in der Toolbox daheim liegt, zählt als vorhanden; nach jedem Auftrag heim; Einstieg merken; beim Start und alle 10 min GPS-Kontrolle.
 - **Commits** nur je Checkpoint.
 
@@ -68,7 +69,8 @@ Szenario-Tests (`Szenario: ...` in `tests/job_tests.lua`): Turtle mit **wirklich
 | immer noch: Heimplatz falsch | **Tippfehler**: Turtle heißt `Hiabstz`, an der Zentrale stand `home:Hiabszt` → Heimplatz kam nie an, Turtle nutzte den alten (durch den Einmess-Fehler verschobenen) aus ihrer Datei | Herkunft sichtbar (`[von: ...]`, `/.homelog`, `diag`, `place list`) (`ce7f193`); Turtle meldet fehlenden/vertippten Heimplatz (`dbb2353`) |
 | "No tool" mit Spitzhacke im Inventar | Spitzhacke musste fest ausgerüstet sein | Spitzhacke zählt als Ausrüstung (dabei, im Inventar oder Toolbox), wird selbst angelegt (Seite ohne Modem) (dieser Checkpoint) |
 | Zwischenkiste fehlte / stand im Schacht | Kiste wurde am Einstieg unten abgestellt, Fehler beim Abstellen still ignoriert | Worker senkt sich ohne Graben bis zum Boden, stellt die Kiste **neben** den Schacht an die Oberfläche, holt sie am Ende wieder; geht das nicht, unten – und klappt auch das nicht, stoppt der Auftrag mit Grund (`44a634c`) |
-| Erzjagd bringt fast nichts (J18: 13 Kohle) | Erzjagd scannt auf der Höhe des Startpunkts; die Leitstelle setzte ihn an die Oberfläche (Y 80), Scan reicht nur ±8 | Diagnose: Meldungsprotokoll `/.worklog` in `diag`, `show J1` und Zonen mit Koordinaten an der Zentrale (`6c79cf3`). Erzjagd: Startpunkt = nur Einstieg, gescannt wird auf `level` (Standard Y 16, auf Zone/Höhenlimit begrenzt), `layers` für Schichten darunter; Leitstelle kennt Erz-Höhen (dieser Checkpoint) |
+| Erzjagd bringt fast nichts (J18: 13 Kohle) | Erzjagd scannt auf der Höhe des Startpunkts; die Leitstelle setzte ihn an die Oberfläche (Y 80), Scan reicht nur ±8 | Diagnose: Meldungsprotokoll `/.worklog` in `diag`, `show J1` und Zonen mit Koordinaten an der Zentrale (`6c79cf3`). Erzjagd: Startpunkt = nur Einstieg, gescannt wird auf `level` (Standard Y 16, auf Zone/Höhenlimit begrenzt), `layers` für Schichten darunter; Leitstelle kennt Erz-Höhen (`b10eafe`) |
+| "keine Spitzhacke", obwohl ausgerüstet | Prüfung sah nur Inventar/Toolbox; ohne `getEquipped*` (ältere CC-Version) war die Spitzhacke unsichtbar | Für **alle** Teile zählt ausgerüstet = vorhanden (Itemname oder Peripheral-Typ); ausgerüsteter Scanner wird direkt benutzt; `diag` zeigt beide Seiten und wo jedes Teil ist (dieser Checkpoint) |
 
 **Lehre:** erst Zustand im Spiel sichtbar machen (diag), dann fixen – nicht raten.
 
