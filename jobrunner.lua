@@ -178,6 +178,15 @@ local function applyMap(p)
   M.say(("Karte Stand %d uebernommen: %d Zonen"):format(p.rev, #(p.zones or {})))
   if not nav.hasGps() and next(places) then
     M.say("Orte von der Zentrale nicht uebernommen: erst gpsfix") -- als letzte Meldung sichtbar lassen
+  elseif not places["home:" .. tostring(os.getComputerLabel())] then
+    -- haeufiger Fehler: Tippfehler im Namen bei "place home" -> die Turtle findet ihren Heimplatz nie
+    local others = {}
+    for name in pairs(places) do
+      if name:find("^home:") then others[#others + 1] = name end
+    end
+    table.sort(others)
+    M.say(("Zentrale hat keinen Heimplatz fuer '%s'%s"):format(tostring(os.getComputerLabel()),
+      #others > 0 and (" (nur " .. table.concat(others, ", ") .. " - Tippfehler?)") or ""))
   end
 end
 

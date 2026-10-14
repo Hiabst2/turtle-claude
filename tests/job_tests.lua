@@ -965,3 +965,14 @@ test("Nav: Heimplatz-Protokoll zeigt, wer den Heimplatz gesetzt hat", function()
   assert(log:find("Zentrale: 730 70 640 Ost", 1, true), log)
   assert(log:find("sethome: ", 1, true), log)
 end)
+
+test("Worker: Tippfehler im Namen an der Zentrale wird angezeigt", function()
+  local w = world()
+  w.map:setPlace("home:Miner1x", 730, 70, 640, 3) -- Turtle heisst Miner1
+  local runner, done = realTurtle(w)
+  require("nav").calibrate = function() return true end
+  for _ = 1, 3 do sim.advance(16000) runner.step() end
+  local status = table.concat(runner.status(), " | ")
+  done()
+  assert(status:find("keinen Heimplatz fuer 'Miner1' (nur home:Miner1x - Tippfehler?)", 1, true), status)
+end)
