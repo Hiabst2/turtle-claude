@@ -511,15 +511,43 @@ end
 function M.status()
   local lines = {}
   local job = state.job
+  -- 1. Was macht sie gerade?
   if job then
-    lines[#lines + 1] = ("Auftrag %s: %s  %s"):format(job.id, job.type, sync.getJob() or "")
+    lines[#lines + 1] = ("Auftrag %s: %s %s"):format(job.id, job.type, sync.getJob() or "")
   elseif state.paused then
-    lines[#lines + 1] = "PAUSIERT: keine neuen Auftraege (P = weiter)"
+    lines[#lines + 1] = "PAUSIERT (P = weiter)"
+  elseif sync.enabled() and not mapFresh and gear.has("modem") then
+    lines[#lines + 1] = "Warte auf Karte der Zentrale"
   else
     lines[#lines + 1] = "Wartet auf Auftrag"
     if why then lines[#lines + 1] = "Kein passender: " .. why end
   end
-  -- was die Turtle ueber ihre Toolbox daheim weiss
+  -- 2. Fuel und Funk
+  local fuel = nav.fuel()
+  local contact
+  local lost = sync.lostSince and sync.lostSince()
+  if not sync.enabled() then
+    contact = "Funk aus"
+  elseif lost then
+    contact = ("Funk WEG seit %d min"):format(math.floor((M.now() - lost.at) / 60000))
+  elseif sync.last then
+    contact = ("Funk ok (vor %ds)"):format(math.floor((M.now() - sync.last.at) / 1000))
+  else
+    contact = "Funk: noch kein Kontakt"
+  end
+  lines[#lines + 1] = ("Fuel %s | %s"):format(fuel == math.huge and "unbegrenzt" or tostring(fuel), contact)
+  -- 3. Nur Probleme
+  if not nav.homeKnown() then lines[#lines + 1] = "! Kein Heimplatz (diag home)" end
+  if not nav.hasGps() then lines[#lines + 1] = "! Kein GPS (gpsfix)" end
+  if state.toolboxMissing then lines[#lines + 1] = "! Keine Toolbox unter dem Heimplatz" end
+  -- 4. Letzte Meldung
+  if lastSay then lines[#lines + 1] = "Zuletzt: " .. lastSay end
+  return lines
+end
+
+-- Alles Weitere fuer diag (Koordinaten, Toolbox, Funk-Zaehler)
+function M.details()
+  local lines = {}
   if state.toolboxMissing then
     lines[#lines + 1] = "Toolbox: keine Kiste unter dem Heimplatz gefunden (Heimplatz pruefen)"
   elseif state.toolbox then
@@ -532,8 +560,6 @@ function M.status()
   else
     lines[#lines + 1] = "Toolbox daheim: noch nie angeschaut"
   end
-  lines[#lines + 1] = "Fuel: " .. tostring(nav.fuel())
-  if lastSay then lines[#lines + 1] = "Letzte Meldung: " .. lastSay end
   lines[#lines + 1] = nav.where()
   lines[#lines + 1] = sync.describe()
   return lines

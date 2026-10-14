@@ -38,6 +38,8 @@ end
 
 if not only or only == "gear" then
   add("-- Ausruestung --")
+  local okRunner, runner = pcall(require, "jobrunner")
+  if okRunner then add(runner.details()[1]) end
   local function eqText(side)
     local name = gear.equipped(side)
     if name == nil then return "unbekannt (" .. tostring(peripheral.getType(side) or "kein Peripheral") .. ")" end

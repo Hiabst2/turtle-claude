@@ -588,7 +588,8 @@ test("Worker: veraltetes Wissen ueber die Toolbox -> fliegt nachschauen, wenn di
   local status = table.concat(runner.status(), " | ")
   done()
   eq(looked, true, "ist heim nachschauen geflogen")
-  assert(status:find("Toolbox daheim: geo_scanner"), status)
+  local details = table.concat(runner.details(), " | ")
+  assert(details:find("Toolbox daheim: geo_scanner"), details)
 end)
 
 test("Worker: Status zeigt, wenn unter dem Heimplatz keine Toolbox ist", function()
@@ -600,7 +601,7 @@ test("Worker: Status zeigt, wenn unter dem Heimplatz keine Toolbox ist", functio
   runner.step() -- daheim, aber unten keine Kiste (peripheral.wrap("bottom") = nil)
   local status = table.concat(runner.status(), " | ")
   done()
-  assert(status:find("keine Kiste unter dem Heimplatz"), status)
+  assert(status:find("Keine Toolbox unter dem Heimplatz"), status)
 end)
 
 test("Worker: Tunnel-Auftrag endet daheim, nicht unter der Erde", function()
@@ -644,7 +645,7 @@ test("Worker: kommt er nicht nach oben, faehrt er erst zum letzten Einstieg", fu
   eq(calls[1], "712 40 618", "erst direkt versucht")
   eq(calls[2], "712 40 612", "dann vom Einstieg aus")
   eq(r, "ausgeruestet")
-  assert(status:find("Letzte Meldung"), status)
+  assert(status:find("Zuletzt:"), status)
 end)
 
 test("Worker: misst sich beim Start per GPS ein und kontrolliert im Leerlauf", function()
@@ -1365,4 +1366,22 @@ test("Szenario: Abbruch auf dem Rueckweg - Zentrale bekommt trotzdem, was bis da
   end)
   undo()
   assert(ok, err)
+end)
+
+test("Worker: Bildschirm zeigt nur das Wichtige, Koordinaten und Zaehler stehen in diag", function()
+  local w = world()
+  local runner, done = realTurtle(w)
+  require("nav").calibrate = function() return true end
+  for _ = 1, 2 do sim.advance(16000) runner.step() end
+  local status = runner.status()
+  local details = table.concat(runner.details(), " | ")
+  done()
+  local text = table.concat(status, " | ")
+  assert(#status <= 6, "hoechstens 6 Zeilen: " .. text)
+  assert(text:find("Wartet auf Auftrag", 1, true), text)
+  assert(text:find("Fuel 20000 | Funk ok", 1, true), text)
+  assert(not text:find("Position x=", 1, true), "keine Koordinaten auf dem Bildschirm: " .. text)
+  assert(not text:find("TurtleMQ:", 1, true), text)
+  assert(details:find("Position x=705", 1, true), details)
+  assert(details:find("TurtleMQ: an", 1, true), details)
 end)

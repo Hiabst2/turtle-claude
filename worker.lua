@@ -17,7 +17,11 @@ local function draw()
   term.setTextColor(colors.yellow)
   print("Worker " .. tostring(os.getComputerLabel() or ("#" .. os.getComputerID())))
   term.setTextColor(colors.white)
-  for _, line in ipairs(runner.status()) do print(line) end
+  local w = term.getSize()
+  for _, line in ipairs(runner.status()) do
+    if #line > 2 * w then line = line:sub(1, 2 * w - 3) .. "..." end -- Rest steht in diag
+    print(line)
+  end
   term.setTextColor(colors.gray)
   print("P = Pause/weiter   Q = Shell")
   term.setTextColor(colors.white)

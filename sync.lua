@@ -175,6 +175,9 @@ function M.maybe()
 end
 
 -- fuer status: eine Zeile
+-- Funk abgerissen? { at, y, tries, deepest } oder nil
+function M.lostSince() return lost end
+
 function M.describe()
   if not M.enabled() then return "TurtleMQ: aus" end
   local n = getNode()
