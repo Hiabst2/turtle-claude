@@ -13,4 +13,15 @@ jobs:
       - name: Lua 5.2 installieren
         run: sudo apt-get update -q && sudo apt-get install -y -q lua5.2
       - name: Syntaxpruefung und Tests
-        run: sh tests/test.sh
+        shell: bash
+        run: |
+          set +e
+          sh tests/test.sh > test.log 2>&1
+          status=$?
+          cat test.log
+          # Fehlgeschlagene Tests und Syntaxfehler als Meldung am Commit anzeigen (ohne Logs oeffnen zu muessen)
+          grep -E -A4 '^FAIL|^lua5\.2:|^luac5\.2:' test.log | head -60 | while IFS= read -r line; do
+            echo "::error title=Test::${line}"
+          done
+          tail -1 test.log | sed 's/^/::notice title=Ergebnis::/'
+          exit $status
