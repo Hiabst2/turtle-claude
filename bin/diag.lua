@@ -29,7 +29,8 @@ end
 
 if not only or only == "home" then
   add("-- Position --")
-  add(nav.where())
+  -- eine Angabe pro Zeile, sonst bricht die lange Zeile auf dem Turtle-Bildschirm mehrfach um
+  for part in nav.where():gmatch("[^|]+") do add(" " .. part:gsub("^%s+", ""):gsub("%s+$", "")) end
   add("Heimplatz-Protokoll (neueste unten):")
   local log = readLines(nav.HOMELOG)
   if #log == 0 then add(" (leer)") end

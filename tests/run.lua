@@ -313,6 +313,55 @@ test("Ordner: zwei Dateien mit gleichem Namen -> Update bricht ab, nichts geaend
   eq(fs.exists("/.version"), false)
 end)
 
+-- Lesbarkeit im Spiel: der Turtle-Bildschirm ist 39 Zeichen breit. Laengere Zeilen bricht CC um,
+-- dann rutscht die Einrichtung auf 13 Zeilen schnell aus dem Bild.
+local SCREEN = 39
+local function checkWidth(what)
+  for _, entry in ipairs(cc.out) do
+    for line in (entry .. "\n"):gmatch("(.-)\n") do
+      assert(#line <= SCREEN, ("%s: Zeile zu lang (%d Zeichen): %s"):format(what, #line, line))
+    end
+  end
+end
+
+test("Bildschirm: bootstrap und update passen auf die Turtle, leere Eingaben gehen", function()
+  local realRead, realSet, realTurtle = read, settings.set, turtle
+  -- wie in CC: settings.set lehnt nil ab (R4)
+  settings.set = function(k, v) assert(v ~= nil, "settings.set mit nil: " .. k) realSet(k, v) end
+  local ok, err = pcall(function()
+    -- Rolle -> Antworten der Reihe nach (leer = Enter)
+    local CASES = {
+      { role = "miner", turtle = true, answers = { "", "", "", "" } }, -- Rolle per Vorgabe (miner)
+      { role = "turtle", turtle = true, answers = { "turtle", "", "", "", "", "" } },
+      { role = "gateway", answers = { "gateway", "", "" } },
+      { role = "central", answers = { "central", "", "" } },
+      { role = "command", answers = { "command", "", "", "", "", "" } },
+      { role = "gps", answers = { "", "", "1", "2", "3" } }, -- Rolle per Vorgabe (gps)
+    }
+    for _, case in ipairs(CASES) do
+      cc.reset()
+      cc.out, settings.values, cc.label = {}, {}, nil
+      turtle = case.turtle and realTurtle or nil
+      local answers = case.answers
+      read = function() return table.remove(answers, 1) or "" end
+      cc.web = {
+        ["main/update.lua"] = assert(io.open("update.lua")):read("*a"),
+        ["api:main"] = { sha = SHA },
+        [SHA .. "/roles/" .. case.role .. ".txt"] = "core/version.lua\n",
+        [SHA .. "/core/version.lua"] = "-- v",
+      }
+      loadfile("bootstrap.lua")()
+      eq(settings.values["claude.role"], case.role, "Rolle")
+      eq(cc.readFile("/version.lua"), "-- v", case.role .. ": installiert")
+      -- nochmal update: "schon aktuell" muss auch passen
+      dofile("update.lua")
+      checkWidth("bootstrap " .. case.role)
+    end
+  end)
+  read, settings.set, turtle = realRead, realSet, realTurtle
+  assert(ok, err)
+end)
+
 test("B9: nextOre sucht nur rund um den aktuellen Scan", function()
   local store = require("store")
   store.save("/.nav", { pos = { x = 0, y = 0, z = 0, f = 0 }, home = { x = 0, y = 0, z = 0, f = 0 }, gps = true })

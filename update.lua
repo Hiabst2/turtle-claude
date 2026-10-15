@@ -51,20 +51,25 @@ end
 
 local old = readVersion()
 local force = select(1, ...) == "force"
-print(("Rolle %s, Kanal %s%s"):format(role, channel, sha and (", Commit " .. sha:sub(1, 7)) or ""))
+-- Ausgaben passen auf den Turtle-Bildschirm (39 Zeichen breit)
+print(("Rolle %s, Kanal %s"):format(role, channel))
+if sha then print("Commit " .. sha:sub(1, 7)) end
 if not force and old and old.layout == LAYOUT and sha and old.sha == sha and old.role == role then
-  print("Schon aktuell. (Trotzdem neu laden: update force)")
+  print("Schon aktuell.")
+  print("Neu laden: update force")
   return
 end
 
 local list, err = get("roles/" .. role .. ".txt")
-if not list then printError("Dateiliste fuer Rolle '" .. role .. "' nicht ladbar: " .. tostring(err)) return end
+if not list then printError("Dateiliste fuer " .. role .. " fehlt:") printError(tostring(err)) return end
 local paths, names, seen = {}, {}, {}
 for path in list:gmatch("[^\r\n]+") do
   if not path:match("^%s*#") and path:match("%S") then
     local name = base(path)
     if seen[name] then
-      printError(("Zwei Dateien heissen %s (%s, %s) - Update abgebrochen."):format(name, seen[name], path))
+      printError("Doppelter Dateiname: " .. name)
+      printError(seen[name] .. ", " .. path)
+      print("Update abgebrochen.")
       return
     end
     seen[name] = path
@@ -80,7 +85,8 @@ for i, path in ipairs(paths) do
   if not body then
     printError("FEHLER " .. path .. ": " .. tostring(e))
     fs.delete(TMP)
-    print("Update abgebrochen, es wurde nichts geaendert.")
+    print("Update abgebrochen,")
+    print("es wurde nichts geaendert.")
     return
   end
   local h = fs.open(TMP .. "/" .. names[i], "w")
@@ -98,7 +104,7 @@ for _, name in ipairs(names) do
   local bare = name:gsub("%.lua$", "")
   if bare ~= name and fs.exists(bare) and not fs.isDir(bare) then
     fs.delete(bare)
-    print("alte Datei '" .. bare .. "' entfernt")
+    print("alte Datei entfernt: " .. bare)
   end
 end
 fs.delete(TMP)
@@ -108,7 +114,7 @@ if old and old.files then
   for _, name in ipairs(old.files) do
     if not keep[name] and fs.exists(name) and not fs.isDir(name) then
       fs.delete(name)
-      print("nicht mehr gebraucht: " .. name)
+      print("entfernt: " .. name)
     end
   end
 end
@@ -120,4 +126,5 @@ f.close()
 if fs.exists(VERSION_FILE) then fs.delete(VERSION_FILE) end
 fs.move(VERSION_FILE .. ".tmp", VERSION_FILE)
 
-print(#names .. " Dateien aktualisiert" .. (old and old.sha and sha and (" (" .. old.sha:sub(1, 7) .. " -> " .. sha:sub(1, 7) .. ")") or "") .. ".")
+print(#names .. " Dateien aktualisiert.")
+if old and old.sha and sha and old.sha ~= sha then print(old.sha:sub(1, 7) .. " -> " .. sha:sub(1, 7)) end

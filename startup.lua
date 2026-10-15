@@ -17,7 +17,8 @@ local function layout()
   return ok and type(v) == "table" and v.layout or nil
 end
 if layout() ~= 2 and fs.exists("update.lua") then
-  print("Neue Dateistruktur: lade alle Programme neu ...")
+  print("Neue Ordnerstruktur:")
+  print("lade alle Programme neu ...")
   shell.run("update", "force")
 end
 
