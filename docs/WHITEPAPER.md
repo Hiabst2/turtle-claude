@@ -292,6 +292,62 @@ Die Route ist eine Empfehlung. Die Turtle prüft jeden Schritt lokal und meldet 
 
 **Ebenen:** Turtles, Routen (geplant gestrichelt, gefahren durchgezogen), Jobs, POIs, Tunnel, Gefahren, Fog of War.
 
+### 9.1 Monitore im Spiel (Idee)
+
+Ein Leitstand direkt in der Welt, ohne Website: CC-Monitore an Gateway und Zentrale zeigen dieselben Bildschirme
+wie das Terminal, nur größer. Noch nicht umgesetzt.
+
+**Hardware**
+
+- **Monitor** (Graustufen) oder **Advanced Monitor** (Farben, Berührung). Nebeneinander gesetzte Blöcke werden
+  zu einem Bildschirm, bis 8 breit und 6 hoch.
+- Anschluss direkt am Computer (Peripheral-Name `top`, `left` …) oder über **Wired Modem und Netzwerkkabel**
+  (`monitor_0` …). So hängt die Anzeige an der Wand, der Computer steht woanders.
+- Größe in Zeichen bei Textgröße 1 ungefähr: 1 Block ≈ 7×5, 4×3 Blöcke ≈ 39×19, 8×6 Blöcke ≈ 82×40.
+  `setTextScale(0.5)` verdoppelt den Platz, größere Werte (bis 5) sind aus der Entfernung lesbar.
+
+**Software**
+
+Die Zeichenfunktionen `Broker:draw` (Gateway) und `jobrunner.draw` (Worker) benutzen `term` und richten sich nach
+`term.getSize()`; Umbruch und Kürzen erledigt `core/text.lua`. Mit `term.redirect` laufen sie unverändert auf
+einem Monitor und zeigen dort automatisch mehr (ganze Zeilen, mehr Geräte):
+
+```lua
+local mon = peripheral.find("monitor")
+if mon then
+  mon.setTextScale(0.5)
+  local old = term.redirect(mon)
+  b:draw(channel)
+  term.redirect(old)
+end
+```
+
+Terminal und Monitor können gleichzeitig laufen: erst normal zeichnen, dann per `redirect` auf den Monitor.
+
+**Anzeigen**
+
+| Wo | Inhalt |
+|---|---|
+| Gateway | Flottenstatus an der Wand, Farbe nach Zustand (online grün, overdue gelb, lost rot) |
+| Zentrale | Auftragstafel: offene, laufende, fertige Jobs mit Worker und Fortschritt |
+| später, mit P9 | Fog-of-War-Karte als grobe Pixelfläche (`paintutils`, `blit`) |
+| Advanced Monitor | Antippen (`monitor_touch`): Job auswählen, Details zeigen, abbrechen |
+
+Turtles bekommen keine Monitore: Ein Monitor muss fest stehen, die Turtle fährt weg.
+
+**Regeln**
+
+- Einstellungen statt fest verdrahtet: `screen.monitor` (Peripheral-Name, leer = erster gefundener) und
+  `screen.scale` (Textgröße).
+- Farben nur auf Advanced Monitoren (`isColor()` prüfen), sonst Graustufen.
+- `monitor_resize` und `peripheral_detach` behandeln: neu zeichnen bzw. Monitor neu suchen, nie abstürzen.
+- Der Monitor steht im selben dauerhaft geladenen Bereich wie Gateway bzw. Zentrale.
+- Der Bildschirm-Test (`tests/screen.lua`) prüft zusätzlich typische Monitorgrößen, z.B. 2×2 Blöcke und 8×6 bei
+  Textgröße 0.5.
+
+**Aufwand:** klein für Gateway und Zentrale, weil die Zeichenfunktionen schon größenunabhängig sind. Kann
+jederzeit nach P3 als eigener Strang gebaut werden.
+
 ---
 
 ## 10. Datenbank
@@ -413,6 +469,8 @@ Hinweis: In v2 wandert die Chat Box an den Command Node, und Claude läuft nicht
 | P20 | Canary Rollouts (vollständig) | P0.6, P2 |
 
 **Neu:** Rescue-Rolle frühestens nach P3. P13 kann jederzeit als eigener Strang gebaut werden.
+
+**Idee:** Monitore im Spiel (Abschnitt 9.1) für Gateway und Zentrale, jederzeit nach P3 als eigener Strang.
 
 ---
 
