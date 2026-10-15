@@ -1,7 +1,8 @@
 # turtle-claude
 
-Eine Mining Turtle (CC:Tweaked) mit Claude als Gehirn: Spieler reden per Chat mit ihr,
-Claude steuert sie über Tools und nutzt fertige Programme für größere Aufgaben.
+Mining-Turtles für CC:Tweaked, die Aufträge von einer Zentrale abarbeiten. Claude sitzt als Leitstelle
+auf einem Computer mit Chat Box: Spieler reden im Chat mit ihr, sie legt Aufträge an und meldet Ergebnisse.
+Die ursprüngliche All-in-one-Turtle mit Claude an Bord gibt es noch als Rolle `turtle` (Altlast).
 
 ## Installation
 
@@ -15,8 +16,8 @@ Der Bootstrap fragt die Rolle ab und richtet alles ein:
 
 | Rolle | Gerät | Inhalt |
 |---|---|---|
-| `turtle` | Turtle | Claude-Turtle: Chat, Mining, Kolonie (fragt API-Key, Besitzer, Name) |
-| `miner` | Turtle | Mining-Programme ohne Claude, Bedienung im Terminal |
+| `miner` | Turtle | Worker: holt Aufträge von der Zentrale und arbeitet sie ab; Programme auch von Hand im Terminal |
+| `turtle` | Turtle | Claude-Turtle (Altlast): Chat, Mining, Kolonie (fragt API-Key, Besitzer, Name) |
 | `gps` | Computer | GPS-Sender (fragt die eigenen Koordinaten) |
 | `gateway` | Computer | TurtleMQ-Gateway mit Statusanzeige aller Geräte (Ender Modem, Chunk dauerhaft laden) |
 | `central` | Computer | Zentrale mit Job-Dienst: verteilt Aufträge an Miner (Ender Modem, Chunk dauerhaft laden) |
@@ -44,10 +45,14 @@ Rolle und Kanal ändern: `set claude.role <rolle>`, `set claude.channel <branch>
 | `update [force]` | Programme der eigenen Rolle neu von GitHub laden |
 | `version` | Installierte Version (Commit, Kanal, Rolle) |
 | `bootstrap [rolle] [kanal]` | Gerät neu einrichten |
+| `worker` | Worker-Dienst der Miner (startet automatisch): `P` Pause, `Q` zurück zur Shell |
+| `diag [gear\|home\|log]` | Fehlersuche: Ausrüstung, Position und Heimplatz, letzte Meldungen (auch in `diag.txt`) |
 | `gateway` | TurtleMQ-Gateway (Rolle `gateway`, startet automatisch) |
+| `central` | Zentrale mit Eingabezeile für Aufträge, Zonen und Orte (Rolle `central`, startet automatisch) |
+| `command` | Leitstelle mit Claude (Rolle `command`, startet automatisch) |
 | `mqtail [topic ...]` | TurtleMQ-Nachrichten live mitlesen, z.B. `mqtail worker.*` |
 
-`nav.lua` und `mine.lua` sind Bibliotheken, die von den Programmen geladen werden.
+Die Bibliotheken (z.B. `turtle/nav.lua`, `turtle/mine.lua`) laden die Programme selbst, siehe „Entwicklung“.
 Der API-Key liegt nur in den Turtle-Settings, nie im Repo.
 
 ## Sicherheit
@@ -61,25 +66,32 @@ Jeder Abbau wird in `nav.lua` geprüft, egal ob von Claude, Stripmine oder Heimw
 Per Chat darf nur der Besitzer (`set claude.owner <Name>`) die Turtle steuern, Fragen darf jeder stellen.
 Zonen und Höhenlimit ändert sie per Chat erst, wenn der Besitzer mit „ja“ bestätigt. Im Terminal mit `zone`.
 
-`startup.lua` startet `claude` nach jedem Neustart und setzt unterbrochene Aufträge fort.
+`startup.lua` startet nach jedem Neustart das Programm der eigenen Rolle (`worker`, `central`, `gateway`,
+`command`, `claude` oder `gpshost`); unterbrochene Aufträge werden dabei fortgesetzt.
 Zustandsdateien (`/.nav`, `/.zones`, `/.job`) werden mit Sicherung gespeichert; ist eine kaputt,
 meldet die Turtle das, statt still neu anzufangen.
 
-## Heimplatz-Aufbau (`sethome`)
+## Heimplatz-Aufbau
 
-- **unter** der Turtle: Ausrüstungskiste (Toolbox) mit Geo Scanner, Player Detector, Ender Modem, Zwischenkiste
+Worker bekommen ihren Heimplatz von der Zentrale (`place home <Name> x y z richtung`), die Claude-Turtle per
+`sethome`.
+
+- **unter** der Turtle: Ausrüstungskiste (Toolbox) mit Ender Modem, Spitzhacke, Geo Scanner, Kisten
+  (Claude-Turtle zusätzlich Player Detector)
 - **neben** der Turtle: Colony Integrator (optional)
 - **hinter** der Turtle: Truhe zum Ausladen (nur wenn es keinen eigenen Lagerplatz gibt)
 - **über** dem Heimplatz frei bis zur Reisehöhe (Standard Y 110, `set claude.travel_y <y>`)
 
-Die Chat Box bleibt immer angelegt. Für Scanner, Detector und Modem wird kurz die Spitzhacke getauscht.
+Worker legen die Spitzhacke selbst an. Das Ender Modem ist fest ausgerüstet oder liegt im Inventar; dann wird es,
+wie der Geo Scanner, nur kurz gegen die Spitzhacke getauscht.
+Bei der Claude-Turtle bleibt die Chat Box angelegt, Scanner, Detector und Modem ersetzen kurz die Spitzhacke.
 
 ## Lagerplatz (optional, `setdepot`)
 
 Eigener Platz zum Ausladen und Tanken, z.B. am Tom's-Storage-Lager:
 
-- **hinter** der Turtle: *Inventory Cable Connector* – alles wird reingeworfen (eigene Kohle bis auf einen Stapel)
-- **unter, rechts oder links**: *Filtered Cable Connector* mit Filter Kohle – davon wird nachgetankt (bis 5000, `set claude.fuel_target`)
+- **hinter** der Turtle: *Inventory Cable Connector*: alles wird reingeworfen (eigene Kohle bis auf einen Stapel)
+- **unter, rechts oder links**: *Filtered Cable Connector* mit Filter Kohle: davon wird nachgetankt (bis 5000, `set claude.fuel_target`)
 - **über** dem Lagerplatz frei bis zur Reisehöhe
 
 ## TurtleMQ (Nachrichten zwischen Geräten)
@@ -99,12 +111,13 @@ Signatur werden verworfen; das Gateway zeigt an, von wem zuletzt etwas abgelehnt
 
 Claude kann den Status aller Geräte beim Gateway abfragen („Hiabszt, wie geht's den anderen Turtles?“):
 Name, Rolle, Zustand, Position, Fuel, Auftrag, wartende Post. Das Gateway warnt bei doppelten Namen.
-Miner-Turtles ohne Claude melden sich vorerst nur während eines Auftrags (Leerlauf-Dienst kommt mit P3).
+Miner-Turtles melden sich über den Worker-Dienst auch im Leerlauf.
 
-Die Turtle braucht ein Wireless/Ender Modem im Inventar. Für jeden Sync wird es kurz statt der Spitzhacke
-angelegt, die Chat Box bleibt dran. Gesynct wird nur an sicheren Stellen: zwischen zwei Mining-Schritten,
-im Leerlauf von `claude` und am Ende eines Auftrags. Nachrichten gehen nicht verloren, auch wenn die Turtle
-länger kein Signal hat; Post vom Gateway holt sie beim nächsten Sync ab.
+Die Turtle braucht ein Wireless/Ender Modem: fest ausgerüstet oder im Inventar (dann wird es für jeden Sync
+kurz statt der Spitzhacke angelegt). Gesynct wird nur an sicheren Stellen: zwischen zwei Mining-Schritten,
+unterwegs nach einer Bewegung (höchstens einmal je Intervall), im Leerlauf und am Ende eines Auftrags.
+Nachrichten gehen nicht verloren, auch wenn die Turtle länger kein Signal hat; Post vom Gateway holt sie beim
+nächsten Sync ab.
 
 ## Zentrale und Aufträge (P3)
 
@@ -181,8 +194,13 @@ Aufbau des Repositorys (auf dem Gerät liegen alle Dateien flach im Hauptverzeic
 
 ## Zwischenkiste
 
-Liegt eine normale Kiste im Inventar der Turtle, stellt sie beim Start von `stripmine`, `tunnel` oder `orehunt`
-die Kiste unter sich ab und legt dort die Ausrüstung ab, die sie beim Minen nicht braucht (bei `orehunt` bleibt
-der Geo Scanner dabei). Während des Auftrags wird die Kiste nicht angefasst. Am Ende holt die Turtle alles raus,
-baut die Kiste ab und legt sie nach der Heimfahrt mit der Ausrüstung zurück in die Toolbox.
-Bei `stop` bleibt die Kiste stehen.
+In der Kiste legt die Turtle beim Minen die Ausrüstung ab, die sie gerade nicht braucht (bei `orehunt` bleibt
+der Geo Scanner dabei, bei Workern das Modem). Während des Auftrags wird die Kiste nicht angefasst, am Ende holt
+die Turtle alles wieder raus und baut sie ab.
+
+- **Worker:** Die Kiste ist Pflicht. Sie kommt an die Oberfläche neben den Einstieg (geht das nicht, unten an den
+  Einstieg). Nach einem Abbruch durch die Zentrale holt der Worker sie wieder und fährt heim. Seine Ausrüstung
+  behält er, sie wandert nicht in die Toolbox.
+- **Von Hand** (`stripmine`, `tunnel`, `orehunt` im Terminal oder über die Claude-Turtle): Liegt eine Kiste im
+  Inventar, wird sie unter der Turtle abgestellt. Nach der Heimfahrt kommen Kiste und Ausrüstung zurück in die
+  Toolbox. Bei `stop` bleibt die Kiste stehen.

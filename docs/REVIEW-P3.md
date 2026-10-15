@@ -4,7 +4,8 @@
 |---|---|
 | Stand | Commit `a1f4e7d` (main, 2026-10-14) |
 | Umfang | alle Commits seit `c3b33de` (P0.5 bis P3.3 + Worker-Fixes) |
-| Methode | nur Code gelesen. Die Tests (`tests/test.sh`) wurden **nicht** ausgeführt (kein lua5.2 verfügbar). |
+| Methode | nur Code gelesen, Tests damals nicht ausgeführt. Seit 2026-10-15 laufen sie bei jedem Push per GitHub Actions. |
+| Pfade | Stand vor der Ordneraufteilung: `jobrunner.lua` liegt heute unter `turtle/`, `jobsvc.lua` unter `central/` usw. |
 | Einbau | nach P3.4 |
 
 ## Stand nach P3.4 (Prüfung gegen `4d16784`, 2026-10-15)
@@ -14,17 +15,17 @@
 | R1 | **erledigt** | `nav.onMove` → `sync.maybe` bei jeder Bewegung (`eff0f64`); Anfahrt, Ausladen und Heimfahrt verlängern jetzt die Lease |
 | R2 | **erledigt** | Aufräumen nach Abbruch/Entzug: Kiste holen, heim (`a7048e7`); Kiste steht an der Oberfläche (`44a634c`). Neues Folgeproblem siehe R13 |
 | R3 | teilweise | GPS-Kontrolle beim Start und alle 10 min fängt eine verrutschte Position ab (`e1eed33`). `store.load` liest weiterhin `.bak` vor `.tmp` |
-| R4 | offen | `bootstrap.lua` unverändert (nur Hinweistexte) |
+| R4 | **erledigt** | leere Eingaben setzen keine Einstellung mehr auf `nil`, mit Test (`38fdd67`) |
 | R5 | teilweise | Abbruch wird als „abgebrochen“ mit Zwischenstand gemeldet, die Zentrale speichert ihn (`eff0f64`). Die Leitstelle hört aber weiter die Worker-Meldung statt das Urteil der Zentrale |
 | R6–R11 | offen | unverändert |
-| R12 | erledigt (lokal) | Whitepaper per Merge `5cfdd2a` auf `main`, noch nicht gepusht; `docs/PROGRESS.md` verweist darauf |
+| R12 | **erledigt** | Whitepaper liegt in `docs/WHITEPAPER.md`, `docs/PROGRESS.md` verweist darauf |
 | R13 | **neu, hoch** | siehe unten |
 
 ---
 
 **Auftrag an die bearbeitende Instanz:** Jeden Punkt erst selbst prüfen. Die Befunde sind Hypothesen aus dem Lesen. Zu jedem bestätigten Punkt zuerst einen fehlschlagenden Test in `tests/` schreiben, dann fixen. Nicht bestätigte Punkte kurz begründet verwerfen.
 
-Bezüge auf das Whitepaper meinen `docs/WHITEPAPER.md` (liegt im Moment nur lokal, nicht im Repo).
+Bezüge auf das Whitepaper meinen `docs/WHITEPAPER.md`.
 
 ---
 
@@ -39,7 +40,7 @@ Bezüge auf das Whitepaper meinen `docs/WHITEPAPER.md` (liegt im Moment nur loka
 - `unloadAndReturn` (Lager hin und zurück)
 - `finish` → `tripDepot` + `unload` + `goHome`. Erst danach meldet `jobrunner` `job.complete`.
 
-Eine Turtle fährt etwa 2,5 Blöcke/s (8 Ticks pro Bewegung). Bei Y −40 und `TRAVEL_Y` 110 kostet allein Hoch und Runter ~300 Blöcke ≈ 120 s. Schon ab ein paar hundert Blöcken Entfernung sind 300 s überschritten.
+Eine Turtle fährt etwa 2,5 Blöcke/s (jede Bewegung dauert in CC:Tweaked 8 Ticks = 0,4 s). Bei Y −40 und `TRAVEL_Y` 110 kostet allein Hoch und Runter ~300 Blöcke ≈ 120 s. Schon ab ein paar hundert Blöcken Entfernung sind 300 s überschritten.
 
 **Folgen:**
 
@@ -164,7 +165,7 @@ Eine Turtle fährt etwa 2,5 Blöcke/s (8 Ticks pro Bewegung). Bei Y −40 und `T
 
 ## R11 – Modell-ID (offen aus B11)
 
-**Wo:** `claude.lua:24`, `agent.lua:29`, `command.lua:22` – Standard `claude-opus-5`
+**Wo:** `claude.lua:24`, `agent.lua:29`, `command.lua:22`, jeweils mit Standard `claude-opus-5`
 
 **Aufgabe:** Gültige ID prüfen und an **einer** Stelle als Standard definieren.
 
@@ -208,7 +209,6 @@ Eine Turtle fährt etwa 2,5 Blöcke/s (8 Ticks pro Bewegung). Bei Y −40 und `T
 
 1. R13 (Absturz des Worker-Dienstes), R3-Rest (Einzeiler in `store.lua`)
 2. R5, R6
-3. R4 (nach Prüfung in CC)
-4. R7–R11
+3. R7–R11 (R4 ist erledigt)
 
 R1 und R2 sind erledigt. Im Spiel trotzdem einmal mit einem weit entfernten Lager und einem absichtlich entzogenen Auftrag gegenprüfen (deckt R13 mit ab). Nach jedem Block `tests/test.sh` laufen lassen.

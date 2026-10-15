@@ -1,7 +1,7 @@
 # turtle-claude – Fortschritt
 
 Laufendes Protokoll: was gebaut wurde, was entschieden wurde, was offen ist.
-Grundlage ist das Whitepaper/Lastenheft „cc:claude v2“ (Draft 0.2). Wird bei jedem Checkpoint aktualisiert.
+Grundlage ist das Whitepaper/Lastenheft „cc:claude v2“ (Draft 0.2). Wird bei jedem Checkpoint aktualisiert (Checkpoint = Commit nach einem abgeschlossenen, getesteten Teilschritt).
 
 ## Stand
 
@@ -18,7 +18,7 @@ Grundlage ist das Whitepaper/Lastenheft „cc:claude v2“ (Draft 0.2). Wird bei
 | P3.4 | Großer Test im Spiel | **läuft** | Fixes ab `73f2f05` |
 
 Tests ohne Minecraft: `sh tests/test.sh` (Lua 5.2, CC-Attrappen, simuliertes Funknetz mit Verlust/Duplikaten).
-Szenario-Tests (`Szenario: ...` in `tests/job_tests.lua`): Turtle mit **wirklicher** Position in einer nachgebildeten Welt, echtes GPS, Zentrale, Neustarts und Versetzen – prüfen, wo sie wirklich landet und wo sie unterwegs war.
+Szenario-Tests (`Szenario: ...` in `tests/job_tests.lua`): Turtle mit wirklicher Position in einer nachgebildeten Welt, echtes GPS, Zentrale, Neustarts und Versetzen. Sie prüfen, wo die Turtle wirklich landet und wo sie unterwegs war.
 
 ## Geräte und Rollen
 
@@ -35,7 +35,7 @@ Szenario-Tests (`Szenario: ...` in `tests/job_tests.lua`): Turtle mit **wirklich
 
 - **Erzjagd:** Startpunkt ist nur der Einstieg; gescannt wird auf der Abbauhöhe `level` (Standard Y 16), optional mehrere Schichten (`layers`). Bis zu 2 Nachscans je Bereich am äußersten Erz.
 - **Sicherheit lokal:** Jede Turtle prüft jeden Block selbst (Zonen, Höhenlimit, geschützte Blöcke), auch wenn die Zonen zentral gepflegt werden.
-- **Steuern nur der Besitzer**, fragen darf jeder. Zonen/Höhenlimit/Orte per Chat nur nach „ja“ des Besitzers – geprüft im Code, nicht von Claude.
+- **Steuern nur der Besitzer**, fragen darf jeder. Zonen/Höhenlimit/Orte per Chat nur nach „ja“ des Besitzers, geprüft im Code und nicht von Claude.
 - **TurtleMQ at-least-once:** speichern → ACK → verarbeiten; Doppelte über die id erkannt. ACK pro Strecke (`hop`).
 - **Turtles = Sync-Geräte:** Post nur beim Kontakt, Ende mit `mq.done`; keine Funksprüche auf Verdacht.
 - **Zentrale** auf eigenem Computer; **All-in-one-Turtle** bekommt keine neuen Funktionen mehr.
@@ -66,13 +66,13 @@ Szenario-Tests (`Szenario: ...` in `tests/job_tests.lua`): Turtle mit **wirklich
 | „Heimweg gescheitert: über dem Höhenlimit“, obwohl oben frei | kurze Wege (< 9 Blöcke) fuhren direkt seitwärts und wollten durch eine Wand graben | versperrter kurzer Weg → über die Reisehöhe; Meldung nennt Ort und Block (`3f5dd04`) |
 | Heimplatz = Stelle, an der die Turtle hingestellt wurde | Platzhalter-Heimplatz einer neuen Turtle wurde beim GPS-Einmessen zu Weltkoordinaten; Orte der Zentrale bei gleichem Kartenstand nicht neu übernommen | Heimplatz gilt erst nach sethome/place home; Einmessen rechnet nur gesetzte um; Worker holt Orte beim Start frisch (`587ac8e`) |
 | Heimplatz 30 Blöcke unter dem Start | Turtle mit GPS wurde versetzt; beim Einmessen wurde der schon absolute Heimplatz um die Versatz-Strecke mitverschoben | Heim-/Lagerplatz nur beim ersten Einmessen (vorher relativ) umrechnen (`cfe1c88`) |
-| derselbe Fehler nach dem Fix | falscher Heimplatz stand noch in der Turtle; beim Start flog sie dorthin, **bevor** der richtige von der Zentrale ankam. Neue Turtle: Heimplatz kam spaeter, nächster Versuch erst nach 10 min | erst Karte holen (`full`, auch bei Stand 0), dann fahren; neuer Heimplatz → sofort hin und Toolbox neu anschauen. Szenario-Tests mit nachgebildeter Welt (`18348a1`) |
+| derselbe Fehler nach dem Fix | falscher Heimplatz stand noch in der Turtle; beim Start flog sie dorthin, bevor der richtige von der Zentrale ankam. Neue Turtle: Heimplatz kam spaeter, nächster Versuch erst nach 10 min | erst Karte holen (`full`, auch bei Stand 0), dann fahren; neuer Heimplatz → sofort hin und Toolbox neu anschauen. Szenario-Tests mit nachgebildeter Welt (`18348a1`) |
 | immer noch: Heimplatz falsch | **Tippfehler**: Turtle heißt `Hiabstz`, an der Zentrale stand `home:Hiabszt` → Heimplatz kam nie an, Turtle nutzte den alten (durch den Einmess-Fehler verschobenen) aus ihrer Datei | Herkunft sichtbar (`[von: ...]`, `/.homelog`, `diag`, `place list`) (`ce7f193`); Turtle meldet fehlenden/vertippten Heimplatz (`dbb2353`) |
 | "No tool" mit Spitzhacke im Inventar | Spitzhacke musste fest ausgerüstet sein | Spitzhacke zählt als Ausrüstung (dabei, im Inventar oder Toolbox), wird selbst angelegt (Seite ohne Modem) (dieser Checkpoint) |
-| Zwischenkiste fehlte / stand im Schacht | Kiste wurde am Einstieg unten abgestellt, Fehler beim Abstellen still ignoriert | Worker senkt sich ohne Graben bis zum Boden, stellt die Kiste **neben** den Schacht an die Oberfläche, holt sie am Ende wieder; geht das nicht, unten – und klappt auch das nicht, stoppt der Auftrag mit Grund (`44a634c`) |
+| Zwischenkiste fehlte / stand im Schacht | Kiste wurde am Einstieg unten abgestellt, Fehler beim Abstellen still ignoriert | Worker senkt sich ohne Graben bis zum Boden, stellt die Kiste neben den Schacht an die Oberfläche, holt sie am Ende wieder; geht das nicht, unten; klappt auch das nicht, stoppt der Auftrag mit Grund (`44a634c`) |
 | Erzjagd bringt fast nichts (J18: 13 Kohle) | Erzjagd scannt auf der Höhe des Startpunkts; die Leitstelle setzte ihn an die Oberfläche (Y 80), Scan reicht nur ±8 | Diagnose: Meldungsprotokoll `/.worklog` in `diag`, `show J1` und Zonen mit Koordinaten an der Zentrale (`6c79cf3`). Erzjagd: Startpunkt = nur Einstieg, gescannt wird auf `level` (Standard Y 16, auf Zone/Höhenlimit begrenzt), `layers` für Schichten darunter; Leitstelle kennt Erz-Höhen (`b10eafe`) |
-| "keine Spitzhacke", obwohl ausgerüstet | Prüfung sah nur Inventar/Toolbox; ohne `getEquipped*` (ältere CC-Version) war die Spitzhacke unsichtbar | Für **alle** Teile zählt ausgerüstet = vorhanden (Itemname oder Peripheral-Typ); ausgerüsteter Scanner wird direkt benutzt; `diag` zeigt beide Seiten und wo jedes Teil ist (`8721be6`) |
-| immer noch "pickaxe: fehlt", beide Seiten "unbekannt" | CC-Version im Spiel hat **kein** `getEquippedLeft/Right` (per `diag gear` bestätigt) – Ausgerüstetes ist nur über den Peripheral-Typ erkennbar, Werkzeuge gar nicht | Seite ohne Peripheral, die sich nicht auslesen lässt = vermutlich Spitzhacke; meldet Graben "No tool", wird eine aus dem Inventar angelegt; `diag gear` zeigt den Rohwert (`08afffc`) |
+| "keine Spitzhacke", obwohl ausgerüstet | Prüfung sah nur Inventar/Toolbox; ohne `getEquipped*` (ältere CC-Version) war die Spitzhacke unsichtbar | Für alle Teile zählt ausgerüstet = vorhanden (Itemname oder Peripheral-Typ); ausgerüsteter Scanner wird direkt benutzt; `diag` zeigt beide Seiten und wo jedes Teil ist (`8721be6`) |
+| immer noch "pickaxe: fehlt", beide Seiten "unbekannt" | CC-Version im Spiel hat kein `getEquippedLeft/Right` (per `diag gear` bestätigt); Ausgerüstetes ist nur über den Peripheral-Typ erkennbar, Werkzeuge gar nicht | Seite ohne Peripheral, die sich nicht auslesen lässt = vermutlich Spitzhacke; meldet Graben "No tool", wird eine aus dem Inventar angelegt; `diag gear` zeigt den Rohwert (`08afffc`) |
 | Heartbeats reißen tief in der Mine ab, erst über dem Lager wieder | Ender Modem, also keine Reichweite: gefunkt wurde nur zwischen Mining-Schritten, auf langen Wegen (Schacht, Weg durch Fels, Fahrt zum Lager) gar nicht | Funkprotokoll in `diag log` (`b983668`); Worker funkt auch unterwegs, höchstens einmal je Intervall; kommt die Karte vor dem GPS, wird sie nach dem Einmessen neu geholt (dieser Checkpoint) |
 | Abbruch auf dem Weg zum Lager: Ergebnis weg | Abbruch-Meldung ohne Zwischenstand; Zentrale ignorierte die Schlussmeldung eines abgebrochenen Auftrags | Meldung enthält „Bisher Abgebaut: …“; Zentrale speichert sie (`show J…`), Leitstelle meldet „abgebrochen“ mit Zwischenstand (`eff0f64`) |
 | Worker-Bildschirm überladen | Koordinaten, Toolbox-Inhalt und MQ-Zähler auf 13 Zeilen | Bildschirm: Zustand, Grund, Fuel + Funk, nur Warnungen, letzte Meldung; Rest in `diag` (`59f1a97`) |

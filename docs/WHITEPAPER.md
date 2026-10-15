@@ -3,7 +3,7 @@
 | | |
 |---|---|
 | Version | 0.2 Draft |
-| Stand | 2026-10-13 |
+| Stand | 2026-10-15 |
 | Basis | Draft 0.1 (Zielvision, Roadmap) + Code-Review von v1 |
 | Subprojekte | TurtleMQ, WorldMap, Worker Framework, JobNode, PathNode, MapNode, GatewayNode |
 
@@ -69,7 +69,7 @@ cc:claude
 └─ Website          Leitstand, Karte
 ```
 
-Die Chat Box sitzt nur am Command Node (Main Controller). Gateway, Job, Path und Map können anfangs auf demselben CC-Computer laufen und werden später ausgelagert. Wichtig ist nur, dass sie ausschließlich über TurtleMQ miteinander reden.
+Die Chat Box sitzt nur am Command Node (Main Controller). Gateway, Job, Path und Map können anfangs auf demselben CC-Computer laufen und werden später ausgelagert. Sie reden dabei nur über TurtleMQ miteinander.
 
 **Gateway = Broker (neu, Festlegung):** Der Gateway Node ist die Broker-Zentrale. Er läuft dauerhaft in einem dauerhaft geladenen Chunk und hält ein Postfach pro Empfänger.
 
@@ -79,11 +79,11 @@ Die Chat Box sitzt nur am Command Node (Main Controller). Gateway, Job, Path und
 
 ### 4.1 Ziel
 
-Robustes Nachrichtenprotokoll mit Persistenz, ACK, Retry und Store-and-Forward. Eigene Implementierung, Transport über Modem (`modem.transmit`/`rednet`), keine Abhängigkeit von `rednet.host`.
+Nachrichtenprotokoll mit Persistenz, ACK, Retry und Store-and-Forward. Eigene Implementierung, Transport über Modem (`modem.transmit`/`rednet`), keine Abhängigkeit von `rednet.host`.
 
 ### 4.2 Zustellgarantie (neu)
 
-**At-least-once.** Eine Nachricht geht nie verloren, kann aber doppelt ankommen. Doppelte werden beim Empfänger über die `id` erkannt (siehe 4.6). Exactly-once wird nicht versprochen, sondern durch Dedupe und idempotente Handler erreicht.
+**At-least-once.** Eine Nachricht geht nie verloren, kann aber doppelt ankommen. Doppelte werden beim Empfänger über die `id` erkannt (siehe 4.6). Exactly-once garantiert das Protokoll nicht; den gleichen Effekt erreichen Dedupe und idempotente Handler.
 
 ### 4.3 Nachrichtenformat
 
@@ -167,9 +167,9 @@ Modem einwechseln → outbox abarbeiten → Postfach beim Gateway abholen → Mo
 Jeder Worker hat dieselbe Basis:
 
 - MQ-Client (4.)
-- Navigation mit lokaler Sicherheitsprüfung (Zonen, Höhenlimit, geschützte Blöcke) – übernommen aus v1 `nav.lua`/`zones.lua`
-- Job-Runner mit Persistenz und Resume – übernommen aus v1 `mine.lua` (`/.job`)
-- Hardware-Manager (Upgrade tauschen) – übernommen aus v1 `gear.lua`
+- Navigation mit lokaler Sicherheitsprüfung (Zonen, Höhenlimit, geschützte Blöcke), übernommen aus v1 (`nav.lua`, `zones.lua`)
+- Job-Runner mit Persistenz und Resume, übernommen aus v1 (`mine.lua`, `/.job`)
+- Hardware-Manager zum Tauschen der Upgrades, übernommen aus v1 (`gear.lua`)
 
 ### 5.2 Rollen
 
@@ -177,8 +177,8 @@ Jeder Worker hat dieselbe Basis:
 |---|---|---|
 | Miner | Abbau, Ore Hunt, Tunnel, Strip Mine | Spitzhacke + Modem; Geo Scanner optional im Wechsel mit dem Modem |
 | Scout | Kartierung, Erkundung, POIs | Chunky fest; Geo Scanner und Modem im Wechsel, Store-and-Forward |
-| Builder | Bauprojekte, Wartung, Infrastruktur | offen |
-| Courier | Transport | offen |
+| Builder | Bauprojekte, Wartung, Infrastruktur, z.B. Schacht mit Leiter ausbauen | offen |
+| Courier | Transport, z.B. Kohle vom Lager zu einem Worker unter Tage bringen | offen |
 | **Rescue (neu)** | liegengebliebene Turtles bergen (Fuel bringen, abholen) | Spitzhacke + Modem |
 
 ### 5.3 Worker-Zustände (neu)
@@ -191,7 +191,7 @@ Bei 60 s Sync-Intervall:
 | overdue | > 3 × Intervall ohne Kontakt |
 | lost | > 10 × Intervall ohne Kontakt → Incident, ggf. Rescue-Job |
 
-Scouts melden vor dem Abtauchen ihre erwartete Offline-Dauer. Solange die nicht überschritten ist, gelten sie nicht als overdue.
+Scouts melden vor dem Abtauchen ihre erwartete Offline-Dauer im Heartbeat (`offline_until`, Zeitpunkt in ms). Solange der nicht überschritten ist, gelten sie nicht als overdue (umgesetzt in `net/broker.lua`).
 
 ---
 
@@ -243,7 +243,7 @@ Regel:
 
 ### 7.5 Speicher (neu)
 
-Ein Scan mit Radius 8 liefert rund 2000 Blöcke, CC-Computer haben standardmäßig etwa 1 MB Speicher. Die WorldMap auf CC ist daher nur für Tests gedacht. Der dauerhafte Speicher ist der externe Server (Abschnitt 10). Auf den Turtles liegt nur ein lokaler Ausschnitt rund um den aktuellen Job.
+Ein Scan mit Radius 8 deckt eine Kugel von rund 2100 Blöcken ab (4/3 · π · 8³), CC-Computer haben standardmäßig 1 MB Speicher (CC:Tweaked-Config `computer_space_limit = 1000000`). Die WorldMap auf CC ist daher nur für Tests gedacht. Der dauerhafte Speicher ist der externe Server (Abschnitt 10). Auf den Turtles liegt nur ein lokaler Ausschnitt rund um den aktuellen Job.
 
 ---
 
@@ -273,6 +273,8 @@ Hinweise **(neu)**:
 - Die kleinsten Kosten sind 1, daher bleibt die Manhattan-Distanz eine zulässige Heuristik für A*.
 - Unknown (25) ist teurer als Stein (10). Bekannter Stein wird also lieber gegraben als unbekanntes Gelände betreten. Das ist gewollt.
 - Fuel-Kosten einer Route sind die Anzahl Schritte, nicht die Wegkosten. Die Route liefert beides zurück.
+- Beispiel: 10 Blöcke durch eine bekannte Höhle kosten 10, ein direkter Weg von 3 Blöcken Stein kostet 30. Die
+  Turtle nimmt also den Umweg durch die Höhle, verbraucht dafür aber 10 statt 3 Fuel.
 
 ### 8.3 Ablauf
 
@@ -303,7 +305,8 @@ wie das Terminal, nur größer. Noch nicht umgesetzt.
   zu einem Bildschirm, bis 8 breit und 6 hoch.
 - Anschluss direkt am Computer (Peripheral-Name `top`, `left` …) oder über **Wired Modem und Netzwerkkabel**
   (`monitor_0` …). So hängt die Anzeige an der Wand, der Computer steht woanders.
-- Größe in Zeichen bei Textgröße 1 ungefähr: 1 Block ≈ 7×5, 4×3 Blöcke ≈ 39×19, 8×6 Blöcke ≈ 82×40.
+- Größe in Zeichen bei Textgröße 1 ungefähr (aus dem Gedächtnis, vor dem Bau im Spiel mit `mon.getSize()`
+  nachmessen): 1 Block ≈ 7×5, 4×3 Blöcke ≈ 39×19, 8×6 Blöcke ≈ 82×40.
   `setTextScale(0.5)` verdoppelt den Platz, größere Werte (bis 5) sind aus der Entfernung lesbar.
 
 **Software**
@@ -345,8 +348,9 @@ Turtles bekommen keine Monitore: Ein Monitor muss fest stehen, die Turtle fährt
 - Der Bildschirm-Test (`tests/screen.lua`) prüft zusätzlich typische Monitorgrößen, z.B. 2×2 Blöcke und 8×6 bei
   Textgröße 0.5.
 
-**Aufwand:** klein für Gateway und Zentrale, weil die Zeichenfunktionen schon größenunabhängig sind. Kann
-jederzeit nach P3 als eigener Strang gebaut werden.
+**Aufwand:** klein für Gateway und Zentrale. Die Zeichenfunktionen gibt es schon und sie richten sich nach der
+Bildschirmgröße; neu wären nur Monitor-Suche, die zwei Einstellungen, Farben und das Neuzeichnen bei
+`monitor_resize`. Kann jederzeit nach P3 als eigener Strang gebaut werden.
 
 ---
 
@@ -399,20 +403,21 @@ Derzeit nur eigener Server ohne fremde Spieler. Die Signatur ist deshalb nicht d
 
 ## 13. Bekannte Probleme
 
-### Slotkonflikte
+### 13.1 Slotkonflikte
 
 Ein Scout braucht Geo Scanner, Chunky und Modem, hat aber nur zwei Plätze.
 
 **Lösung:** Chunky bleibt fest, Geo Scanner und Modem wechseln sich ab. Kommunikation per Store-and-Forward (4.7).
 
-### Kartenkonsistenz
+### 13.2 Kartenkonsistenz
 
 Siehe 7.4.
 
-### Chunkloading
+### 13.3 Chunkloading
 
 - Die Chunky Turtle ist derzeit die wichtigste bekannte Lösung.
-- FTB Chunks ist im Modpack vorhanden, eine automatische Integration mit Turtles ist nicht bekannt.
+- FTB Chunks ist im Modpack vorhanden. Eine Möglichkeit, Chunks von einer Turtle aus automatisch zu laden, kennen
+  wir bisher nicht (nicht gezielt gesucht).
 - Der Gateway Node muss in einem dauerhaft geladenen Chunk stehen.
 - **(neu)** Eine Turtle in einem entladenen Chunk ist eingefroren. Store-and-Forward sorgt nur dafür, dass Nachrichten an sie nicht verloren gehen. Die Statuslogik (5.3) muss das berücksichtigen.
 
@@ -493,9 +498,13 @@ Hinweis: In v2 wandert die Chat Box an den Command Node, und Claude läuft nicht
 
 ## 17. Offene Fragen
 
-1. **Wo läuft der Path Node langfristig?** A* über große Karten ist auf CC langsam. Vorschlag: auf CC bis P5, danach auf dem Server.
-2. **Wie kommuniziert der Gateway mit dem Server?** HTTP-Polling oder WebSocket (CC unterstützt beides). Empfehlung: WebSocket.
-3. **Mehrere Dimensionen?** Das Feld `dim` ist in der Karte vorgesehen. Sollen Worker dimensionsübergreifend arbeiten (Ender Modem reicht über Dimensionen)?
+1. **Wo läuft der Path Node langfristig?** A* über große Karten ist auf CC vermutlich zu langsam: Schon die lokale
+   Wegsuche der Turtle musste auf die Umgebung des aktuellen Scans begrenzt werden (B9), gemessen ist es nicht.
+   Vorschlag: auf CC bis P5, danach auf dem Server.
+2. **Wie kommuniziert der Gateway mit dem Server?** HTTP-Polling oder WebSocket (CC unterstützt beides,
+   `http.websocket`). Empfehlung: WebSocket, weil der Server dann Nachrichten sofort schicken kann, statt dass das
+   Gateway ständig nachfragen muss.
+3. **Mehrere Dimensionen?** Das Feld `dim` ist in der Karte vorgesehen. Sollen Worker dimensionsübergreifend arbeiten? Das Ender Modem funkt laut CC:Tweaked-Doku auch zwischen Dimensionen.
 4. **Welche Rechte hat Claude im Command Node?** Darf Claude Jobs ohne Bestätigung anlegen, Zonen nur mit Bestätigung (wie v1)?
 5. **Teststrategie:** Reine Logik (MQ, Pathing, Zonen) mit plain Lua und Stubs außerhalb von Minecraft testen? Turtle-spezifisches nur im Spiel.
-6. **Konfiguration:** `config.json` oder CC-`settings` – eins davon als Standard festlegen.
+6. **Konfiguration:** `config.json` oder CC-`settings`, welches wird der Standard? (Derzeit: `settings`.)
