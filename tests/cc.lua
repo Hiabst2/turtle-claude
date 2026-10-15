@@ -3,38 +3,79 @@
 
 local M = {}
 
--- Dateisystem: CC-Pfade ("/.nav") landen in einem Temp-Verzeichnis
-local root = os.getenv("CC_ROOT") or "/tmp/cc-test"
-os.execute("rm -rf " .. root .. " && mkdir -p " .. root)
-local function real(path) return root .. "/" .. path:gsub("^/", "") end
+-- Dateisystem im Arbeitsspeicher: CC-Pfade ("/.nav") sind Schluessel einer Tabelle. Kein Prozessstart je
+-- Dateizugriff (frueher mkdir/rm/ls per Shell, das machte die Tests minutenlang).
+local files, dirs = {}, {}
+local function norm(p) return (p:gsub("/+", "/"):gsub("^/", ""):gsub("/$", "")) end
+local function parent(p) return p:match("^(.*)/[^/]*$") or "" end
+local function mkdirs(p)
+  while p ~= "" and not dirs[p] do
+    dirs[p] = true
+    p = parent(p)
+  end
+end
+-- alle Eintraege unterhalb von p (fuer delete und move von Ordnern)
+local function below(p)
+  local list, prefix = {}, p .. "/"
+  for k in pairs(files) do if k:sub(1, #prefix) == prefix then list[#list + 1] = { "f", k } end end
+  for k in pairs(dirs) do if k:sub(1, #prefix) == prefix then list[#list + 1] = { "d", k } end end
+  return list
+end
 
 fs = {
-  exists = function(p) local f = io.open(real(p), "r") if f then f:close() return true end return false end,
-  isDir = function(p) return os.execute("test -d '" .. real(p) .. "'") == true end,
-  makeDir = function(p) os.execute("mkdir -p '" .. real(p) .. "'") end,
+  exists = function(p) p = norm(p) return p == "" or files[p] ~= nil or dirs[p] == true end,
+  isDir = function(p) p = norm(p) return p == "" or dirs[p] == true end,
+  makeDir = function(p) mkdirs(norm(p)) end,
   list = function(p)
-    local names, pipe = {}, io.popen("ls -A '" .. real(p) .. "' 2>/dev/null")
-    for name in pipe:lines() do names[#names + 1] = name end
-    pipe:close()
+    p = norm(p)
+    local names, prefix = {}, p == "" and "" or (p .. "/")
+    for _, t in ipairs({ files, dirs }) do
+      for k in pairs(t) do
+        local rest = k:sub(#prefix + 1)
+        if k:sub(1, #prefix) == prefix and rest ~= "" and not rest:find("/", 1, true) then names[#names + 1] = rest end
+      end
+    end
+    table.sort(names)
     return names
   end,
-  delete = function(p) os.execute("rm -rf '" .. real(p) .. "'") end,
-  move = function(a, b) assert(os.rename(real(a), real(b))) end,
+  delete = function(p)
+    p = norm(p)
+    for _, e in ipairs(below(p)) do if e[1] == "f" then files[e[2]] = nil else dirs[e[2]] = nil end end
+    files[p], dirs[p] = nil, nil
+  end,
+  move = function(a, b)
+    a, b = norm(a), norm(b)
+    assert(files[a] or dirs[a], "move: " .. a .. " fehlt")
+    mkdirs(parent(b))
+    if files[a] then
+      files[b], files[a] = files[a], nil
+    else
+      for _, e in ipairs(below(a)) do
+        local nk = b .. e[2]:sub(#a + 1)
+        if e[1] == "f" then files[nk], files[e[2]] = files[e[2]], nil else dirs[nk], dirs[e[2]] = true, nil end
+      end
+      dirs[b], dirs[a] = true, nil
+    end
+  end,
   open = function(p, mode)
-    -- wie in CC: beim Schreiben werden fehlende Ordner angelegt
-    if mode == "w" then os.execute("mkdir -p \"$(dirname '" .. real(p) .. "')\"") end
-    local f = io.open(real(p), mode == "w" and "w" or "r")
-    if not f then return nil end
-    return {
-      readAll = function() return f:read("*a") end,
-      write = function(s) f:write(s) end,
-      close = function() f:close() end,
-    }
+    p = norm(p)
+    if mode == "w" then
+      -- wie in CC: beim Schreiben werden fehlende Ordner angelegt, die Datei ist sofort leer
+      mkdirs(parent(p))
+      files[p] = ""
+      return {
+        write = function(s) files[p] = files[p] .. tostring(s) end,
+        close = function() end,
+      }
+    end
+    local text = files[p]
+    if not text then return nil end
+    return { readAll = function() return text end, close = function() end }
   end,
 }
-function M.writeFile(p, text) local f = io.open(real(p), "w") f:write(text) f:close() end
-function M.readFile(p) local f = io.open(real(p), "r") if not f then return nil end local t = f:read("*a") f:close() return t end
-function M.reset() os.execute("rm -rf " .. root .. " && mkdir -p " .. root) end
+function M.writeFile(p, text) p = norm(p) mkdirs(parent(p)) files[p] = text end
+function M.readFile(p) return files[norm(p)] end
+function M.reset() files, dirs = {}, {} end
 
 -- textutils: serialize ueber Lua-Literale, JSON wird nicht wirklich kodiert, sondern durchgereicht
 local function ser(v, indent)
@@ -149,8 +190,8 @@ http = {
 -- shell.run startet ein Programm aus dem simulierten Dateisystem
 shell = {
   run = function(prog, ...)
-    local file = fs.exists(prog) and prog or (prog .. ".lua")
-    local fn = assert(loadfile(real(file)))
+    local file = (fs.exists(prog) and not fs.isDir(prog)) and prog or (prog .. ".lua")
+    local fn = assert(load(assert(M.readFile(file), "kein Programm " .. file), "@" .. file))
     return fn(...)
   end,
 }
