@@ -213,12 +213,22 @@ Scouts melden vor dem Abtauchen ihre erwartete Offline-Dauer im Heartbeat (`offl
 - Bereiche (Zonen-Ausschnitte) werden pro Job reserviert, damit zwei Miner nie denselben Bereich abbauen.
 - Job-Zustände: `created → assigned → accepted → running → complete | failed | expired`.
 
-### 6.2 Kosten der Leitstelle (Idee)
+### 6.2 Kosten der Leitstelle
 
 **Stand:** Die Leitstelle läuft auf Claude Opus 5 (`claude-opus-5`, $5 / $25 pro 1M Tokens Eingabe/Ausgabe) mit
 `effort: "low"` und automatischem Caching und verbraucht etwa 1 USD am Tag. Kosten entstehen nur, wenn jemand die
 Leitstelle anspricht: Jede Frage braucht meist 2–3 API-Aufrufe (Frage, Tool, Antwort), und jeder Aufruf schickt
-Systemtext, Tool-Beschreibungen und den Verlauf (bis zu 40 Nachrichten) mit. Noch nicht umgesetzt.
+Systemtext, Tool-Beschreibungen und den Verlauf (bis zu 40 Nachrichten) mit.
+
+**Umgesetzt (2026-10-15, `claude/agent.lua`):** Der Verlauf wird nur noch hinten ergänzt. Nach 20 Einträgen
+oder 15 Minuten Ruhe beginnt mit der nächsten Frage eine neue Sitzung; ihre erste Nachricht bringt eine
+Lagemeldung der offenen Aufträge mit, die der Code baut. Text wird beim Eintreffen einmal nach UTF-8 gewandelt.
+Tool-Ergebnisse sind auf 2000 Zeichen begrenzt, eine Ablehnung (`stop_reason: "refusal"`) wird im Chat gemeldet
+und landet nicht im Verlauf. Modell und Effort kommen aus `claude.model` / `claude.effort`, Standard
+`claude-opus-5-5` mit `low`. Tests prüfen, dass jeder Aufruf den vorherigen Verlauf unverändert enthält.
+Die alte Claude-Turtle (`apps/claude.lua`) ist nicht umgebaut.
+
+Ursprüngliche Überlegung:
 
 **Drei Hebel, die sich zusammen umsetzen lassen** (billiger und zugleich besser):
 
@@ -505,7 +515,8 @@ Hinweis: In v2 wandert die Chat Box an den Command Node, und Claude läuft nicht
 
 **Idee:** Monitore im Spiel (Abschnitt 9.1) für Gateway und Zentrale, jederzeit nach P3 als eigener Strang.
 
-**Idee:** Kosten der Leitstelle senken (Abschnitt 6.2): Cache prüfen, kürzerer Verlauf, Wechsel auf Claude Opus 5.5.
+**Umgesetzt:** Kosten der Leitstelle (Abschnitt 6.2): Verlauf nur anhängen, Sitzungen, Claude Opus 5.5. Offen ist
+nur, in der Console nachzusehen, ob der Cache greift.
 
 ---
 

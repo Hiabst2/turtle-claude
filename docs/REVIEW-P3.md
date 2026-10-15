@@ -17,7 +17,8 @@
 | R3 | teilweise | GPS-Kontrolle beim Start und alle 10 min fängt eine verrutschte Position ab (`e1eed33`). `store.load` liest weiterhin `.bak` vor `.tmp` |
 | R4 | **erledigt** | leere Eingaben setzen keine Einstellung mehr auf `nil`, mit Test (`38fdd67`) |
 | R5 | teilweise | Abbruch wird als „abgebrochen“ mit Zwischenstand gemeldet, die Zentrale speichert ihn (`eff0f64`). Die Leitstelle hört aber weiter die Worker-Meldung statt das Urteil der Zentrale |
-| R6–R11 | offen | unverändert |
+| R6–R10 | offen | unverändert |
+| R11 | teilweise | Leitstelle liest das Modell nur noch aus `claude.model` (Standard `claude-opus-5-5`); die alte Claude-Turtle (`apps/claude.lua`) hat weiter `claude-opus-5` fest |
 | R12 | **erledigt** | Whitepaper liegt in `docs/WHITEPAPER.md`, `docs/PROGRESS.md` verweist darauf |
 | R13 | **neu, hoch** | siehe unten |
 

@@ -165,9 +165,18 @@ Claude läuft auf einem Computer mit Chat Box und Ender Modem (Rolle `command`) 
 - „Leitstelle, brich J3 ab“
 - „Leitstelle, leg eine Zone mine2 an …“ → muss der Besitzer mit „ja“ bestätigen
 
-Fertige und gescheiterte Aufträge meldet die Leitstelle von selbst im Chat. Steuern darf nur der Besitzer,
+Fertige und gescheiterte Aufträge meldet die Leitstelle von selbst im Chat, ohne Claude zu fragen. Claude
+wird nur aufgerufen, wenn jemand die Leitstelle beim Namen anspricht. Steuern darf nur der Besitzer,
 Fragen darf jeder stellen. Mit Colony Integrator am Computer beantwortet sie auch Fragen zur Kolonie.
 Die All-in-one-Turtle (`claude`, Rolle `turtle`) ist Altlast und wird nicht mehr weiterentwickelt.
+
+```
+set claude.model claude-opus-5-5   Modell (Standard claude-opus-5-5)
+set claude.effort low              Denktiefe low/medium/high (Standard low)
+```
+
+Der Verlauf wird nur hinten ergänzt. Nach 20 Einträgen oder 15 Minuten Ruhe beginnt eine neue Sitzung, die mit
+einer kurzen Lagemeldung der offenen Aufträge startet (Whitepaper 6.2).
 
 ## Entwicklung
 
