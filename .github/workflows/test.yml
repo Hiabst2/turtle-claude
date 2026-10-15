@@ -1,0 +1,16 @@
+# Tests ohne Minecraft (tests/test.sh) bei jedem Push und Pull Request
+name: Tests
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Lua 5.2 installieren
+        run: sudo apt-get update -q && sudo apt-get install -y -q lua5.2
+      - name: Syntaxpruefung und Tests
+        run: sh tests/test.sh
