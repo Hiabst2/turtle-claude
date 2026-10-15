@@ -1,15 +1,4 @@
-# Rolle central: Zentrale mit Job-Dienst (Computer mit Wireless/Ender Modem in dauerhaft geladenem Chunk)
+# Altlast fuer update-Versionen vor der Ordnerstruktur: holt nur das neue update und startup.
+# Beim naechsten Start laedt startup dann alles nach roles/central.txt. Aktuelle Liste: roles/central.txt
 update.lua
-version.lua
-bootstrap.lua
 startup.lua
-store.lua
-cost.lua
-crypto.lua
-mq.lua
-services.lua
-jobsvc.lua
-mapsvc.lua
-pathsvc.lua
-central.lua
-mqtail.lua

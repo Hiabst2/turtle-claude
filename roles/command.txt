@@ -1,0 +1,13 @@
+# Rolle command: Leitstelle mit Claude (Computer mit Chat Box und Wireless/Ender Modem)
+update.lua
+core/version.lua
+bootstrap.lua
+startup.lua
+core/store.lua
+core/crypto.lua
+net/mq.lua
+claude/agent.lua
+claude/commander.lua
+apps/command.lua
+claude/colony.lua
+bin/mqtail.lua

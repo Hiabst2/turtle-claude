@@ -486,7 +486,7 @@ test("Bootstrap: 'bootstrap miner' ohne Rueckfragen schaltet TurtleMQ ein", func
   cc.web = {
     ["main/update.lua"] = assert(io.open("update.lua")):read("*a"),
     ["api:main"] = { sha = "abc1234def" },
-    ["abc1234def/manifests/miner.txt"] = "nav.lua\n",
+    ["abc1234def/roles/miner.txt"] = "nav.lua\n",
     ["abc1234def/nav.lua"] = "n",
   }
   loadfile("bootstrap.lua")("miner")

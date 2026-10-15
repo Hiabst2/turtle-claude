@@ -7,6 +7,20 @@
 --   gateway: TurtleMQ-Gateway starten
 local role = settings.get("claude.role", "turtle")
 
+-- Umstieg auf die Ordner im Repository: aeltere update-Versionen holen nur noch update.lua und startup.lua
+-- (siehe manifests/ und files.txt). Fehlt der neue Stand (layout 2), hier einmal das neue update ausfuehren.
+local function layout()
+  if not fs.exists("/.version") then return nil end
+  local f = fs.open("/.version", "r")
+  local ok, v = pcall(textutils.unserialize, f.readAll())
+  f.close()
+  return ok and type(v) == "table" and v.layout or nil
+end
+if layout() ~= 2 and fs.exists("update.lua") then
+  print("Neue Dateistruktur: lade alle Programme neu ...")
+  shell.run("update", "force")
+end
+
 if role == "gps" then
   shell.run("gpshost")
 elseif role == "gateway" then

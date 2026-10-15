@@ -1,0 +1,6 @@
+# Rolle gps: GPS-Sender (Koordinaten in den Settings gps.x/y/z)
+update.lua
+core/version.lua
+bootstrap.lua
+startup.lua
+apps/gpshost.lua

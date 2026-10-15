@@ -1,5 +1,6 @@
 -- Tests ausserhalb von Minecraft:  cd turtle-claude && lua5.2 tests/run.lua
-package.path = "./?.lua;./tests/?.lua;" .. package.path
+-- Module liegen im Repository in Ordnern (auf dem Geraet flach, siehe update.lua); Programme in apps/ und bin/
+package.path = "./?.lua;./core/?.lua;./turtle/?.lua;./net/?.lua;./central/?.lua;./claude/?.lua;./tests/?.lua;" .. package.path
 local say = function(s) io.write(s, "\n") end -- print ist durch die CC-Attrappe belegt
 local cc = require("cc")
 
@@ -97,7 +98,7 @@ local function runClaude(events, responses, owner)
   cc.peripherals.chatBox = cc.chatBox
   cc.responses = responses
   cc.events = events
-  dofile("claude.lua")
+  dofile("apps/claude.lua")
 end
 
 local function toolUse(name, input, stop)
@@ -200,7 +201,7 @@ local function web(files, sha)
 end
 
 test("B8: update laedt alle Dateien vom selben Commit und merkt sich die Version", function()
-  web({ ["manifests/turtle.txt"] = "# Kommentar\nnav.lua\nupdate.lua\n", ["nav.lua"] = "neu", ["update.lua"] = "-- u" }, SHA)
+  web({ ["roles/turtle.txt"] = "# Kommentar\nnav.lua\nupdate.lua\n", ["nav.lua"] = "neu", ["update.lua"] = "-- u" }, SHA)
   dofile("update.lua")
   eq(cc.readFile("/nav.lua"), "neu")
   for _, url in ipairs(cc.gets) do
@@ -214,7 +215,7 @@ end)
 
 test("B8: abgebrochener Download ersetzt nichts", function()
   cc.writeFile("/nav.lua", "alt")
-  web({ ["manifests/turtle.txt"] = "nav.lua\nfehlt.lua\n", ["nav.lua"] = "neu" }, SHA)
+  web({ ["roles/turtle.txt"] = "nav.lua\nfehlt.lua\n", ["nav.lua"] = "neu" }, SHA)
   dofile("update.lua")
   eq(cc.readFile("/nav.lua"), "alt")
   eq(fs.exists("/.update"), false, "Temp-Verzeichnis aufgeraeumt")
@@ -222,7 +223,7 @@ test("B8: abgebrochener Download ersetzt nichts", function()
 end)
 
 test("B8: schon aktuell -> nichts laden", function()
-  web({ ["manifests/turtle.txt"] = "nav.lua\n", ["nav.lua"] = "neu" }, SHA)
+  web({ ["roles/turtle.txt"] = "nav.lua\n", ["nav.lua"] = "neu" }, SHA)
   dofile("update.lua")
   cc.gets = {}
   dofile("update.lua")
@@ -230,7 +231,7 @@ test("B8: schon aktuell -> nichts laden", function()
 end)
 
 test("B8: ohne API (Limit) wird vom Branch geladen", function()
-  web({ ["manifests/turtle.txt"] = "nav.lua\n", ["nav.lua"] = "neu" }, nil)
+  web({ ["roles/turtle.txt"] = "nav.lua\n", ["nav.lua"] = "neu" }, nil)
   dofile("update.lua")
   eq(cc.readFile("/nav.lua"), "neu")
 end)
@@ -238,18 +239,18 @@ end)
 test("B8: Kanal und Rolle waehlen Branch und Manifest", function()
   settings.values["claude.channel"] = "beta"
   settings.values["claude.role"] = "miner"
-  cc.web = { ["api:beta"] = { sha = SHA }, [SHA .. "/manifests/miner.txt"] = "nav.lua\n", [SHA .. "/nav.lua"] = "x" }
+  cc.web = { ["api:beta"] = { sha = SHA }, [SHA .. "/roles/miner.txt"] = "nav.lua\n", [SHA .. "/nav.lua"] = "x" }
   dofile("update.lua")
   eq(cc.readFile("/nav.lua"), "x")
   assert(cc.gets[1]:find("commits/beta$"), cc.gets[1])
 end)
 
 test("P0.6: Rollenwechsel raeumt Dateien der alten Rolle weg", function()
-  web({ ["manifests/turtle.txt"] = "nav.lua\nclaude.lua\n", ["nav.lua"] = "n", ["claude.lua"] = "c" }, SHA)
+  web({ ["roles/turtle.txt"] = "nav.lua\nclaude.lua\n", ["nav.lua"] = "n", ["claude.lua"] = "c" }, SHA)
   dofile("update.lua")
   eq(cc.readFile("/claude.lua"), "c")
   settings.values["claude.role"] = "miner"
-  web({ ["manifests/miner.txt"] = "nav.lua\n", ["nav.lua"] = "n2" }, "fff0000111")
+  web({ ["roles/miner.txt"] = "nav.lua\n", ["nav.lua"] = "n2" }, "fff0000111")
   dofile("update.lua")
   eq(fs.exists("/claude.lua"), false, "claude.lua gehoert nicht zum Miner")
   eq(cc.readFile("/nav.lua"), "n2")
@@ -260,7 +261,7 @@ test("P0.6: bootstrap richtet Rolle und Kanal ein und installiert", function()
   cc.web = {
     ["main/update.lua"] = assert(io.open("update.lua")):read("*a"),
     ["api:main"] = { sha = SHA },
-    [SHA .. "/manifests/miner.txt"] = "nav.lua\n",
+    [SHA .. "/roles/miner.txt"] = "nav.lua\n",
     [SHA .. "/nav.lua"] = "n",
   }
   loadfile("bootstrap.lua")("miner")
@@ -269,19 +270,47 @@ test("P0.6: bootstrap richtet Rolle und Kanal ein und installiert", function()
   eq(cc.readFile("/nav.lua"), "n")
 end)
 
-test("P0.6: Manifeste passen zum Repository", function()
+test("P0.6: Rollenlisten passen zum Repository", function()
   local function lines(file)
     local t = {}
     for l in io.lines(file) do if not l:match("^%s*#") and l ~= "" then t[#t + 1] = l end end
     return t
   end
   for _, role in ipairs({ "turtle", "miner", "gps", "gateway", "central", "command" }) do
-    for _, name in ipairs(lines("manifests/" .. role .. ".txt")) do
-      assert(io.open(name), role .. ": Datei fehlt im Repository: " .. name)
+    local names = {}
+    for _, path in ipairs(lines("roles/" .. role .. ".txt")) do
+      assert(io.open(path), role .. ": Datei fehlt im Repository: " .. path)
+      -- auf dem Geraet landen alle Dateien flach: kein Name darf doppelt vorkommen
+      local name = path:match("[^/]+$")
+      assert(not names[name], role .. ": Dateiname doppelt: " .. name)
+      names[name] = true
     end
+    -- Altlast fuer aeltere update-Versionen: holt nur das neue update und startup
+    eq(table.concat(lines("manifests/" .. role .. ".txt"), ","), "update.lua,startup.lua", "manifests/" .. role)
   end
-  -- files.txt ist fuer alte update-Versionen und muss dem Turtle-Manifest entsprechen
-  eq(table.concat(lines("files.txt"), ","), table.concat(lines("manifests/turtle.txt"), ","), "files.txt")
+  eq(table.concat(lines("files.txt"), ","), "update.lua,startup.lua", "files.txt")
+end)
+
+test("Ordner: Dateien aus Unterordnern landen flach, alter Stand ohne layout wird neu geladen", function()
+  -- Stand nach einem alten update: gleicher Commit, aber ohne layout und nur update/startup
+  cc.writeFile("/.version", textutils.serialize({ sha = SHA, role = "turtle", channel = "main",
+    files = { "update.lua", "startup.lua" } }))
+  web({ ["roles/turtle.txt"] = "turtle/nav.lua\ncore/store.lua\n", ["turtle/nav.lua"] = "n",
+    ["core/store.lua"] = "s" }, SHA)
+  dofile("update.lua")
+  eq(cc.readFile("/nav.lua"), "n", "trotz gleichem Commit neu geladen")
+  eq(cc.readFile("/store.lua"), "s")
+  eq(fs.exists("/turtle/nav.lua"), false, "kein Unterordner auf dem Geraet")
+  local v = textutils.unserialize(cc.readFile("/.version"))
+  eq(v.layout, 2) eq(v.files[1], "nav.lua")
+end)
+
+test("Ordner: zwei Dateien mit gleichem Namen -> Update bricht ab, nichts geaendert", function()
+  cc.writeFile("/nav.lua", "alt")
+  web({ ["roles/turtle.txt"] = "turtle/nav.lua\nbin/nav.lua\n", ["turtle/nav.lua"] = "a", ["bin/nav.lua"] = "b" }, SHA)
+  dofile("update.lua")
+  eq(cc.readFile("/nav.lua"), "alt")
+  eq(fs.exists("/.version"), false)
 end)
 
 test("B9: nextOre sucht nur rund um den aktuellen Scan", function()

@@ -22,7 +22,7 @@ Der Bootstrap fragt die Rolle ab und richtet alles ein:
 | `central` | Computer | Zentrale mit Job-Dienst: verteilt Aufträge an Miner (Ender Modem, Chunk dauerhaft laden) |
 | `command` | Computer | Leitstelle: Claude mit Chat Box, steuert die Turtles über Aufträge (fragt API-Key, Besitzer, Name) |
 
-Später reicht `update`. Es lädt nur die Dateien der eigenen Rolle (`manifests/<rolle>.txt`), alle vom
+Später reicht `update`. Es lädt nur die Dateien der eigenen Rolle (`roles/<rolle>.txt`), alle vom
 selben Commit, und tauscht erst aus, wenn alles da ist. `version` zeigt, was installiert ist.
 Rolle und Kanal ändern: `set claude.role <rolle>`, `set claude.channel <branch>`, dann `update`.
 
@@ -158,9 +158,26 @@ Die All-in-one-Turtle (`claude`, Rolle `turtle`) ist Altlast und wird nicht mehr
 
 ## Entwicklung
 
-- Neue Datei: in die passenden `manifests/*.txt` eintragen. `files.txt` ist nur noch für alte
-  `update`-Versionen da und muss dem Turtle-Manifest entsprechen (prüft ein Test).
-- Tests ohne Minecraft (braucht Lua 5.2): `sh tests/test.sh`
+Aufbau des Repositorys (auf dem Gerät liegen alle Dateien flach im Hauptverzeichnis, `update` packt sie aus):
+
+| Ordner | Inhalt |
+|---|---|
+| `/` | `startup`, `update`, `bootstrap` (müssen oben liegen) |
+| `core/` | Grundlagen: Speichern, Fuel-Formel, Krypto, Version |
+| `turtle/` | Bewegung, Zonen, Ausrüstung, Wegsuche, Mining, Worker-Logik |
+| `net/` | TurtleMQ: Nachrichten, Sync-Fenster, Broker |
+| `central/` | Dienste der Zentrale: Jobs, Karte, Wege |
+| `claude/` | Claude-Agent, Leitstelle, MineColonies |
+| `apps/` | Hauptprogramm je Rolle (`worker`, `central`, `gateway`, `command`, `claude`, `gpshost`) |
+| `bin/` | Befehle fürs Terminal (`stripmine`, `orehunt`, `gohome`, `zone`, `diag`, …) |
+| `roles/` | welche Dateien jede Rolle bekommt |
+| `tests/`, `docs/` | Tests ohne Minecraft, Whitepaper, Review, Fortschritt |
+
+- Neue Datei: in den passenden Ordner legen und in `roles/*.txt` eintragen. Dateinamen müssen über alle Ordner
+  eindeutig sein, weil sie auf dem Gerät flach landen (prüft ein Test).
+- `manifests/` und `files.txt` sind Altlast für ältere `update`-Versionen: Sie holen nur das neue `update` und
+  `startup`, beim nächsten Start lädt `startup` dann alles neu.
+- Tests ohne Minecraft (braucht Lua 5.2): `sh tests/test.sh`. Auf GitHub laufen sie bei jedem Push automatisch.
 
 ## Zwischenkiste
 

@@ -1,6 +1,4 @@
-# Rolle gps: GPS-Sender (Koordinaten in den Settings gps.x/y/z)
+# Altlast fuer update-Versionen vor der Ordnerstruktur: holt nur das neue update und startup.
+# Beim naechsten Start laedt startup dann alles nach roles/gps.txt. Aktuelle Liste: roles/gps.txt
 update.lua
-version.lua
-bootstrap.lua
 startup.lua
-gpshost.lua

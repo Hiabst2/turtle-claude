@@ -1,13 +1,4 @@
-# Rolle command: Leitstelle mit Claude (Computer mit Chat Box und Wireless/Ender Modem)
+# Altlast fuer update-Versionen vor der Ordnerstruktur: holt nur das neue update und startup.
+# Beim naechsten Start laedt startup dann alles nach roles/command.txt. Aktuelle Liste: roles/command.txt
 update.lua
-version.lua
-bootstrap.lua
 startup.lua
-store.lua
-crypto.lua
-mq.lua
-agent.lua
-commander.lua
-command.lua
-colony.lua
-mqtail.lua

@@ -1,6 +1,9 @@
 -- update: holt die Programme der eigenen Rolle in der neuesten Version von GitHub
 --   set claude.role turtle|miner|gps     (Standard: turtle)
 --   set claude.channel <branch>          (Standard: main)
+-- Welche Dateien eine Rolle braucht, steht in roles/<rolle>.txt. Im Repository liegen sie in Ordnern
+-- (core/, turtle/, net/ ...), auf dem Geraet landen alle flach im Hauptverzeichnis: aus turtle/nav.lua
+-- wird /nav.lua. So bleibt require("nav") ueberall gleich.
 -- Alle Dateien kommen vom selben Commit. Erst wird alles nach /.update/ geladen, nur wenn jede Datei
 -- da ist, werden die alten ersetzt. Dateien, die die Rolle nicht mehr braucht, werden entfernt.
 -- Laeuft ohne andere Module, damit es auch auf einem frischen Computer funktioniert.
@@ -8,6 +11,9 @@ local OWNER_REPO = "Hiabst2/turtle-claude"
 local RAW = "https://raw.githubusercontent.com/" .. OWNER_REPO .. "/"
 local API = "https://api.github.com/repos/" .. OWNER_REPO .. "/commits/"
 local TMP, VERSION_FILE = "/.update", "/.version"
+-- 2 = Dateien kommen aus roles/ und werden flach installiert. Aeltere update-Versionen kannten das nicht
+-- (siehe manifests/): ein Stand ohne layout 2 gilt nie als aktuell.
+local LAYOUT = 2
 
 local role = settings.get("claude.role", "turtle")
 local channel = settings.get("claude.channel", "main")
@@ -28,6 +34,9 @@ local function readVersion()
   return v
 end
 
+-- Dateiname auf dem Geraet: turtle/nav.lua -> nav.lua
+local function base(path) return path:match("[^/]+$") end
+
 -- Commit des Kanals bestimmen. Klappt das nicht (API-Limit), wird direkt vom Branch geladen.
 local ref, sha = channel, nil
 local apiBody = fetch(API .. channel)
@@ -43,30 +52,38 @@ end
 local old = readVersion()
 local force = select(1, ...) == "force"
 print(("Rolle %s, Kanal %s%s"):format(role, channel, sha and (", Commit " .. sha:sub(1, 7)) or ""))
-if not force and old and sha and old.sha == sha and old.role == role then
+if not force and old and old.layout == LAYOUT and sha and old.sha == sha and old.role == role then
   print("Schon aktuell. (Trotzdem neu laden: update force)")
   return
 end
 
-local list, err = get("manifests/" .. role .. ".txt")
-if not list then printError("Manifest fuer Rolle '" .. role .. "' nicht ladbar: " .. tostring(err)) return end
-local names = {}
-for name in list:gmatch("[^\r\n]+") do
-  if not name:match("^%s*#") then names[#names + 1] = name end
+local list, err = get("roles/" .. role .. ".txt")
+if not list then printError("Dateiliste fuer Rolle '" .. role .. "' nicht ladbar: " .. tostring(err)) return end
+local paths, names, seen = {}, {}, {}
+for path in list:gmatch("[^\r\n]+") do
+  if not path:match("^%s*#") and path:match("%S") then
+    local name = base(path)
+    if seen[name] then
+      printError(("Zwei Dateien heissen %s (%s, %s) - Update abgebrochen."):format(name, seen[name], path))
+      return
+    end
+    seen[name] = path
+    paths[#paths + 1], names[#names + 1] = path, name
+  end
 end
 
 -- 1. alles herunterladen
 if fs.exists(TMP) then fs.delete(TMP) end
 fs.makeDir(TMP)
-for _, name in ipairs(names) do
-  local body, e = get(name)
+for i, path in ipairs(paths) do
+  local body, e = get(path)
   if not body then
-    printError("FEHLER " .. name .. ": " .. tostring(e))
+    printError("FEHLER " .. path .. ": " .. tostring(e))
     fs.delete(TMP)
     print("Update abgebrochen, es wurde nichts geaendert.")
     return
   end
-  local h = fs.open(TMP .. "/" .. name, "w")
+  local h = fs.open(TMP .. "/" .. names[i], "w")
   h.write(body)
   h.close()
 end
@@ -89,14 +106,14 @@ fs.delete(TMP)
 -- 3. Dateien der alten Version, die nicht mehr gebraucht werden (z.B. nach Rollenwechsel)
 if old and old.files then
   for _, name in ipairs(old.files) do
-    if not keep[name] and fs.exists(name) then
+    if not keep[name] and fs.exists(name) and not fs.isDir(name) then
       fs.delete(name)
       print("nicht mehr gebraucht: " .. name)
     end
   end
 end
 
-local info = { sha = sha, channel = channel, role = role, files = names, updated = os.epoch("utc") }
+local info = { sha = sha, channel = channel, role = role, files = names, layout = LAYOUT, updated = os.epoch("utc") }
 local f = fs.open(VERSION_FILE .. ".tmp", "w")
 f.write(textutils.serialize(info))
 f.close()
