@@ -9,6 +9,7 @@ local version = require("version")
 
 local M = {}
 M.ASK_TIMEOUT = 8 -- Sekunden, die auf eine Antwort gewartet wird
+M.BRIEF_TIMEOUT = 3 -- Sekunden fuer die Lagemeldung am Anfang einer Sitzung (sie soll die Antwort kaum bremsen)
 
 local FACINGS = { sued = 0, west = 1, nord = 2, ost = 3 }
 local FACING_NAMES = { [0] = "sued", "west", "nord", "ost" }
@@ -289,8 +290,23 @@ function M.new(opts)
 
   local READ_ONLY = { jobs_list = true, fleet = true, map_show = true, fuel_estimate = true, status = true, colony = true }
 
+  -- Lagemeldung fuer den Anfang einer Sitzung: laufende Auftraege, im Code zusammengebaut (kein Claude-Aufruf)
+  local function brief()
+    local r = c.ask("job", "job.list", {}, M.BRIEF_TIMEOUT)
+    if not r then return "Stand der Auftraege unbekannt (Zentrale antwortet nicht)." end
+    local lines = {}
+    for _, j in ipairs(r.jobs or {}) do
+      if j.state ~= "complete" and j.state ~= "failed" and j.state ~= "cancelled" then
+        lines[#lines + 1] = ("%s %s: %s%s"):format(j.id, j.type, j.state, j.worker and (", " .. label(j.worker)) or "")
+      end
+    end
+    if #lines == 0 then return "Keine offenen Auftraege." end
+    return "Offene Auftraege: " .. table.concat(lines, "; ")
+  end
+
   c.agent = agent.new({
-    name = opts.name, owner = opts.owner, key = opts.key, model = opts.model, chatBox = opts.chatBox,
+    name = opts.name, owner = opts.owner, key = opts.key, model = opts.model, effort = opts.effort,
+    chatBox = opts.chatBox, brief = brief, now = opts.now,
     system = M.system(opts.name), tools = defs, debug = opts.debug,
     readOnly = function(name) return READ_ONLY[name] == true end,
     runTool = function(name, input)

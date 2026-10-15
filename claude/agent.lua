@@ -8,14 +8,24 @@
 --   * "stop" bricht ab; Aenderungen, die eine Bestaetigung brauchen, fuehrt erst das "ja" des
 --     Besitzers aus - geprueft hier im Code, nicht von Claude
 --
+-- Der Verlauf wird nur hinten ergaenzt, nie veraendert (Whitepaper 6.2). Neuere Modelle (ab Claude Opus 5.5)
+-- pruefen das und lehnen einen veraenderten Verlauf ab; ausserdem bleibt so der Prompt-Cache gueltig.
+-- Statt alte Nachrichten vorne abzuschneiden, beginnt nach SESSION_MESSAGES Eintraegen oder SESSION_IDLE
+-- Sekunden Ruhe eine neue Sitzung mit leerem Verlauf. Ihre erste Nachricht bekommt eine kurze Lagemeldung,
+-- die der Code zusammenbaut (opts.brief), nicht Claude. Text wird beim Eintreffen einmal nach UTF-8 gewandelt.
+--
 -- Tools liefern einen Text. Braucht eine Aenderung Bestaetigung, liefert das Tool
 --   { confirm = "Beschreibung", apply = function() return "Ergebnis" end }
 
 local M = {}
 
 M.API = "https://api.anthropic.com/v1/messages"
-M.MAX_HISTORY = 40
+M.MODEL = "claude-opus-5-5" -- Standard; set claude.model <id> waehlt ein anderes
+M.EFFORT = "low" -- ausdruecklich setzen: der Standard der API haengt vom Modell ab
 M.MAX_STEPS = 25
+M.SESSION_MESSAGES = 20 -- Eintraege im Verlauf, ab denen die naechste Frage eine neue Sitzung beginnt
+M.SESSION_IDLE = 15 * 60 -- Sekunden Ruhe, nach denen die naechste Frage eine neue Sitzung beginnt
+M.MAX_TOOL_RESULT = 2000 -- Zeichen; laengere Tool-Ergebnisse werden gekuerzt (gehen bei jedem Aufruf mit)
 
 local Agent = {}
 Agent.__index = Agent
@@ -26,7 +36,11 @@ function M.new(opts)
   self.trigger = self.name:lower()
   self.owner = opts.owner
   self.key = opts.key
-  self.model = opts.model or "claude-opus-5"
+  self.model = opts.model or M.MODEL
+  self.effort = opts.effort or M.EFFORT
+  self.brief = opts.brief -- function() -> Lagemeldung fuer den Anfang einer Sitzung (oder nil)
+  self.now = opts.now or function() return os.epoch("utc") end
+  self.lastActivity = nil
   self.system = opts.system or ""
   self.tools = opts.tools or {}
   self.runTool = opts.runTool -- function(name, input, ctx) -> Text oder {confirm, apply}
@@ -56,12 +70,21 @@ local function toUtf8(s)
   end))
 end
 
-local function fixStrings(t)
-  for k, v in pairs(t) do
-    if type(v) == "string" then t[k] = toUtf8(v)
-    elseif type(v) == "table" then fixStrings(v) end
-  end
+-- auf hoechstens max Bytes kuerzen, nie mitten in einem UTF-8-Zeichen
+local function cutUtf8(s, max)
+  if #s <= max then return s end
+  local cut = max
+  while cut > 0 and s:byte(cut + 1) and s:byte(cut + 1) >= 0x80 and s:byte(cut + 1) <= 0xBF do cut = cut - 1 end
+  return s:sub(1, cut)
 end
+
+-- Tool-Ergebnis fuer den Verlauf: gueltiges UTF-8 und begrenzte Laenge
+local function toolText(text)
+  text = toUtf8(tostring(text))
+  if #text <= M.MAX_TOOL_RESULT then return text end
+  return cutUtf8(text, M.MAX_TOOL_RESULT) .. ("\n... (gekuerzt, %d Zeichen insgesamt)"):format(#text)
+end
+M.toolText = toolText
 
 -- am letzten Leerzeichen vor der Grenze teilen, nie mitten in einem UTF-8-Zeichen
 function M.splitChat(text, max)
@@ -105,14 +128,13 @@ end
 -- API ----------------------------------------------------------------------------
 
 function Agent:call()
-  fixStrings(self.history)
   local body = textutils.serializeJSON({
     model = self.model,
     max_tokens = 4096,
     system = self.system,
     tools = self.tools,
     cache_control = { type = "ephemeral" },
-    output_config = { effort = "low" },
+    output_config = { effort = self.effort },
     messages = self.history,
   }, { unicode_strings = true })
   local RETRY = { [429] = true, [500] = true, [502] = true, [503] = true, [529] = true }
@@ -142,12 +164,26 @@ function Agent:call()
   end
 end
 
-function Agent:trimHistory()
-  local h = self.history
-  while #h > M.MAX_HISTORY do
-    table.remove(h, 1)
-    while h[1] and not (h[1].role == "user" and type(h[1].content) == "string") do table.remove(h, 1) end
+-- Beginnt die naechste Frage eine neue Sitzung? (leerer Verlauf, Verlauf voll, oder lange Ruhe)
+function Agent:sessionDue()
+  if #self.history == 0 then return true end
+  if #self.history >= M.SESSION_MESSAGES then return true end
+  return self.lastActivity ~= nil and self.now() - self.lastActivity > M.SESSION_IDLE * 1000
+end
+
+-- Neue Sitzung: leerer Verlauf statt abgeschnittener (der alte bleibt unveraendert liegen, bis er verfaellt).
+-- Liefert die Lagemeldung fuer die erste Nachricht.
+function Agent:newSession()
+  self.history = {}
+  local lines = { "[System] Neue Sitzung, der fruehere Verlauf ist nicht mehr da." }
+  if self.brief then
+    local ok, text = pcall(self.brief)
+    if ok and text and text ~= "" then lines[#lines + 1] = tostring(text) end
   end
+  if self.pending then
+    lines[#lines + 1] = "Wartet auf Bestaetigung des Besitzers: " .. self.pending.text
+  end
+  return table.concat(lines, "\n")
 end
 
 function Agent:closeOpenToolUses()
@@ -181,13 +217,14 @@ end
 function Agent:handle(user, text, fromChat)
   self.stopRequested = false
   self:closeOpenToolUses()
-  self:trimHistory()
   local content = user and ("[" .. user .. "] " .. text) or text
   if #self.notes > 0 then
     content = table.concat(self.notes, "\n") .. "\n" .. content
     self.notes = {}
   end
-  self.history[#self.history + 1] = { role = "user", content = content }
+  if self:sessionDue() then content = self:newSession() .. "\n" .. content end
+  self.lastActivity = self.now()
+  self.history[#self.history + 1] = { role = "user", content = toUtf8(content) }
   local say = function(msg) self:reply(msg, fromChat) end
 
   for _ = 1, M.MAX_STEPS do
@@ -196,6 +233,15 @@ function Agent:handle(user, text, fromChat)
       self:reply("API-Fehler: " .. tostring(err or (resp.error and resp.error.message)), fromChat)
       return
     end
+    self.lastActivity = self.now()
+    if resp.stop_reason == "refusal" then
+      -- abgelehnt: nichts in den Verlauf (eine leere Antwort waere beim naechsten Aufruf ein Fehler)
+      local cat = type(resp.stop_details) == "table" and resp.stop_details.category or nil
+      self:reply("Dazu antworte ich nicht" .. (cat and (" (abgelehnt: " .. tostring(cat) .. ")") or "")
+        .. ". Frag gern anders.", fromChat)
+      return
+    end
+    if type(resp.content) ~= "table" or #resp.content == 0 then return end
     self.history[#self.history + 1] = { role = "assistant", content = resp.content }
     local said, results = {}, {}
     for _, block in ipairs(resp.content or {}) do
@@ -210,9 +256,9 @@ function Agent:handle(user, text, fromChat)
         local ok, out = pcall(self.tool, self, block.name, block.input or {}, user, say)
         local result = { type = "tool_result", tool_use_id = block.id }
         if ok then
-          result.content = tostring(out)
+          result.content = toolText(out)
         else
-          result.content, result.is_error = "Fehler im Tool: " .. tostring(out), true
+          result.content, result.is_error = toolText("Fehler im Tool: " .. tostring(out)), true
         end
         if self.debug then print(result.content) end
         results[#results + 1] = result

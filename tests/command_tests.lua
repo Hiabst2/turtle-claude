@@ -152,3 +152,87 @@ test("Leitstelle: Fuel-Schaetzung ueber den Path-Dienst", function()
   local res = w.c.tools.fuel_estimate({ from = { x = 0, y = 20, z = 0 }, to = { x = 100, y = 64, z = 50 } })
   eq(res, "Etwa " .. require("cost").trip({ x = 0, y = 20, z = 0 }, { x = 100, y = 64, z = 50 }) .. " Fuel (Flug ueber Reisehoehe)")
 end)
+
+-- Verlauf nur hinten ergaenzen (Whitepaper 6.2) --------------------------------------
+local function same(a, b)
+  if type(a) ~= type(b) then return false end
+  if type(a) ~= "table" then return a == b end
+  for k, v in pairs(a) do if not same(v, b[k]) then return false end end
+  for k in pairs(b) do if a[k] == nil then return false end end
+  return true
+end
+-- beginnt der Verlauf von req2 exakt mit dem von req1?
+local function extends(req1, req2)
+  if #req2.messages < #req1.messages then return false end
+  for i, m in ipairs(req1.messages) do
+    if not same(m, req2.messages[i]) then return false end
+  end
+  return true
+end
+
+test("Leitstelle: Verlauf wird nur hinten ergaenzt, Modell und Effort stimmen", function()
+  local w = setup()
+  local a = w.c.agent
+  cc.responses = { toolUse("jobs_list", {}), text("nichts los"), toolUse("fleet", {}), text("alle da"), text("gern") }
+  a:handle("Hiabstla", "was laeuft?", true)
+  a:handle("Hiabstla", "und die turtles?", true)
+  a:handle("Hiabstla", "danke", true)
+  eq(#cc.sent, 5)
+  for i = 2, #cc.sent do assert(extends(cc.sent[i - 1], cc.sent[i]), "Verlauf veraendert vor Aufruf " .. i) end
+  eq(cc.sent[1].model, "claude-opus-5-5")
+  eq(cc.sent[1].output_config.effort, "low")
+  assert(cc.sent[1].messages[1].content:find("Neue Sitzung"), "Lagemeldung am Anfang fehlt")
+end)
+
+test("Leitstelle: voller Verlauf -> neue Sitzung mit Lagemeldung statt abgeschnittenem Verlauf", function()
+  local w = setup()
+  require("agent").SESSION_MESSAGES = 4
+  local a = w.c.agent
+  w.c.tools.job_create({ type = "gohome" })
+  cc.responses = { text("a"), text("b"), text("c") }
+  a:handle("Hiabstla", "eins", true)
+  a:handle("Hiabstla", "zwei", true)
+  a:handle("Hiabstla", "drei", true)
+  assert(extends(cc.sent[1], cc.sent[2]), "zweite Frage: gleiche Sitzung")
+  eq(#cc.sent[3].messages, 1, "neue Sitzung beginnt leer")
+  local first = cc.sent[3].messages[1].content
+  assert(first:find("Neue Sitzung") and first:find("J1 gohome") and first:find("drei"), first)
+end)
+
+test("Leitstelle: nach langer Pause neue Sitzung", function()
+  local w = setup()
+  local a = w.c.agent
+  local t = 0
+  a.now = function() return t end
+  cc.responses = { text("a"), text("b"), text("c") }
+  a:handle("Hiabstla", "eins", true)
+  t = 60 * 1000
+  a:handle("Hiabstla", "zwei", true)
+  assert(extends(cc.sent[1], cc.sent[2]), "kurze Pause: gleiche Sitzung")
+  t = t + (require("agent").SESSION_IDLE + 1) * 1000
+  a:handle("Hiabstla", "drei", true)
+  eq(#cc.sent[3].messages, 1, "nach langer Pause neue Sitzung")
+end)
+
+test("Leitstelle: Ablehnung wird gemeldet und landet nicht im Verlauf", function()
+  local w = setup()
+  local a = w.c.agent
+  cc.responses = { { type = "message", stop_reason = "refusal", stop_details = { category = "cyber" }, content = {} },
+    text("ok") }
+  a:handle("Hiabstla", "boese frage", true)
+  local said = table.concat(cc.chat, " | ")
+  assert(said:find("abgelehnt: cyber"), said)
+  a:handle("Hiabstla", "normale frage", true)
+  for _, m in ipairs(cc.sent[2].messages) do assert(m.role ~= "assistant", "abgelehnte Antwort im Verlauf") end
+  assert(extends(cc.sent[1], cc.sent[2]), "Verlauf nach Ablehnung veraendert")
+end)
+
+test("Leitstelle: lange Tool-Ergebnisse werden gekuerzt", function()
+  local w = setup()
+  local a = w.c.agent
+  w.c.tools.fleet = function() return ("x"):rep(5000) end
+  cc.responses = { toolUse("fleet", {}), text("viel") }
+  a:handle("Hiabstla", "flotte?", true)
+  local res = lastMsg(cc.sent[2]).content[1].content
+  assert(#res < 2100 and res:find("gekuerzt, 5000 Zeichen", 1, true), "Laenge " .. #res)
+end)
