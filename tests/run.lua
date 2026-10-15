@@ -373,13 +373,10 @@ test("Bildschirm: Worker passt auf die Turtle (39x13), auch mit langen Meldungen
   require("sync").onMessage({ topic = "job.none", payload = { reasons = ("J1: fehlt geo_scanner, chest; "):rep(6) } })
   local s = screen.new(39, 13)
   screen.run(s, runner.draw)
-  eq(s.scrolled, 0, "aus dem Bild gescrollt
-" .. s.dump())
-  eq(s.clipped, 0, "abgeschnitten
-" .. s.dump())
+  eq(s.scrolled, 0, "aus dem Bild gescrollt\n" .. s.dump())
+  eq(s.clipped, 0, "abgeschnitten\n" .. s.dump())
   assert(s.line(1):find("^Worker"), s.dump())
-  eq(s.line(13), runner.HELP, "Tastenhilfe unten
-" .. s.dump())
+  eq(s.line(13), runner.HELP, "Tastenhilfe unten\n" .. s.dump())
   assert(s.dump():find("Kein passender") and s.dump():find("Zuletzt"), s.dump())
 end)
 
@@ -396,15 +393,11 @@ test("Bildschirm: Gateway passt auf den Computer (51x19), auch mit vielen Geraet
   for i = 1, 8 do b.log[i] = { source = i, target = "gateway", topic = "worker.heartbeat" } end
   local s = screen.new(51, 19)
   screen.run(s, function() b:draw(4242) end)
-  eq(s.scrolled, 0, "aus dem Bild gescrollt
-" .. s.dump())
-  eq(s.clipped, 0, "abgeschnitten
-" .. s.dump())
+  eq(s.scrolled, 0, "aus dem Bild gescrollt\n" .. s.dump())
+  eq(s.clipped, 0, "abgeschnitten\n" .. s.dump())
   assert(s.line(1):find("^TurtleMQ Gateway"), s.dump())
-  assert(s.dump():find("weitere Geraete"), "Hinweis auf weitere Geraete fehlt
-" .. s.dump())
-  eq(s.line(14), ("-"):rep(51), "Trennlinie ueber den letzten 5 Nachrichten
-" .. s.dump())
+  assert(s.dump():find("weitere Geraete"), "Hinweis auf weitere Geraete fehlt\n" .. s.dump())
+  eq(s.line(14), ("-"):rep(51), "Trennlinie ueber den letzten 5 Nachrichten\n" .. s.dump())
 end)
 
 test("Rollen: jede Rolle bekommt alle Module, die ihre Dateien laden", function()
