@@ -7,6 +7,21 @@
 | Methode | nur Code gelesen. Die Tests (`tests/test.sh`) wurden **nicht** ausgeführt (kein lua5.2 verfügbar). |
 | Einbau | nach P3.4 |
 
+## Stand nach P3.4 (Prüfung gegen `4d16784`, 2026-10-15)
+
+| # | Status | Wodurch / was fehlt |
+|---|---|---|
+| R1 | **erledigt** | `nav.onMove` → `sync.maybe` bei jeder Bewegung (`eff0f64`); Anfahrt, Ausladen und Heimfahrt verlängern jetzt die Lease |
+| R2 | **erledigt** | Aufräumen nach Abbruch/Entzug: Kiste holen, heim (`a7048e7`); Kiste steht an der Oberfläche (`44a634c`). Neues Folgeproblem siehe R13 |
+| R3 | teilweise | GPS-Kontrolle beim Start und alle 10 min fängt eine verrutschte Position ab (`e1eed33`). `store.load` liest weiterhin `.bak` vor `.tmp` |
+| R4 | offen | `bootstrap.lua` unverändert (nur Hinweistexte) |
+| R5 | teilweise | Abbruch wird als „abgebrochen“ mit Zwischenstand gemeldet, die Zentrale speichert ihn (`eff0f64`). Die Leitstelle hört aber weiter die Worker-Meldung statt das Urteil der Zentrale |
+| R6–R11 | offen | unverändert |
+| R12 | erledigt (lokal) | Whitepaper per Merge `5cfdd2a` auf `main`, noch nicht gepusht; `docs/PROGRESS.md` verweist darauf |
+| R13 | **neu, hoch** | siehe unten |
+
+---
+
 **Auftrag an die bearbeitende Instanz:** Jeden Punkt erst selbst prüfen. Die Befunde sind Hypothesen aus dem Lesen. Zu jedem bestätigten Punkt zuerst einen fehlschlagenden Test in `tests/` schreiben, dann fixen. Nicht bestätigte Punkte kurz begründet verwerfen.
 
 Bezüge auf das Whitepaper meinen `docs/WHITEPAPER.md` (liegt im Moment nur lokal, nicht im Repo).
@@ -161,12 +176,39 @@ Eine Turtle fährt etwa 2,5 Blöcke/s (8 Ticks pro Bewegung). Bei Y −40 und `T
 
 ---
 
+## R13 – Zweites `job.revoke` bricht das Aufräumen ab, der Worker kann abstürzen (hoch, neu in P3.4)
+
+**Wo:** `jobrunner.lua:262-269` (`onMessage`, `job.cancel`/`job.revoke`), `jobrunner.lua:93` (`tidyUp`), `jobrunner.lua:473`, `worker.lua:33`
+
+**Mechanismus:**
+
+- Der Handler prüft nur `job.result == nil`, nicht `job.stop`. Jedes weitere Cancel/Revoke für denselben Auftrag ruft deshalb erneut `nav.abort()` auf, auch während die Turtle schon aufräumt.
+- Ein zweites Revoke ist beim Entzug der Normalfall:
+  1. Die Lease ist abgelaufen.
+  2. Beim Sync N schickt der Hook `job.progress`, die Zentrale antwortet mit Revoke #1.
+  3. Beim Sync N+1 läuft der Hook **vor** dem Empfang, `job.stop` ist noch nicht gesetzt. Er schickt also wieder `job.progress` und erst danach kommt Revoke #1 an.
+  4. Die Zentrale beantwortet Progress #2 mit Revoke #2. Das kommt beim nächsten Sync an, also mitten in der Heimfahrt (`onMove` funkt ja jetzt unterwegs).
+- Die Folgen hängen davon ab, wo der Abbruch einschlägt:
+  - in `mine.run` (`retrieveChest`/`tripHome` laufen in `pcall`): „Der Heimweg hat nicht geklappt“, die Turtle bleibt unten stehen. Damit kommt R2 durch die Hintertür zurück.
+  - in `tidyUp` → `goHomeSafe`: kein `pcall`, und auch `runner.step()` in `worker.lua:33` ist nicht abgesichert. Der Fehler „abgebrochen“ beendet das **Worker-Programm**, die Turtle steht bis zum nächsten Neustart still.
+- Ein Cancel ist nicht betroffen: Die Zentrale beantwortet Progress zu einem abgebrochenen Auftrag nicht mit Revoke.
+
+**Prüfen:** Test: Lease ablaufen lassen, zwei Syncs durchspielen, beide Revokes zustellen. Erwartung heute: zweites `nav.abort()` während `tidyUp`/`tripHome`.
+
+**Fix-Vorschlag:**
+
+- `onMessage`: nur reagieren, wenn `not job.stop` (der Auftrag ist schon beendet, ein weiteres Signal ändert nichts).
+- `tidyUp`: `goHomeSafe` in `pcall`.
+- `worker.lua`: `runner.step()` in `pcall` und den Fehler als letzte Meldung anzeigen, damit der Dienst nie wegen eines einzelnen Fehlers endet.
+- Optional: Bei einem entzogenen Auftrag im Hook gar kein `job.progress` mehr schicken. Das ist schon so, sobald `job.stop` gesetzt ist; das Problem ist nur das Zeitfenster vor Schritt 3.
+
+---
+
 ## Empfohlene Reihenfolge
 
-1. R3 (klein, eindeutig)
-2. R1 + R2 zusammen (hängen zusammen, betreffen dieselben Abläufe)
-3. R5, R6
-4. R4 (nach Prüfung in CC)
-5. R7–R12
+1. R13 (Absturz des Worker-Dienstes), R3-Rest (Einzeiler in `store.lua`)
+2. R5, R6
+3. R4 (nach Prüfung in CC)
+4. R7–R11
 
-Nach jedem Block `tests/test.sh` laufen lassen. R1 und R2 zusätzlich im Spiel mit einem weit entfernten Lager testen.
+R1 und R2 sind erledigt. Im Spiel trotzdem einmal mit einem weit entfernten Lager und einem absichtlich entzogenen Auftrag gegenprüfen (deckt R13 mit ab). Nach jedem Block `tests/test.sh` laufen lassen.
