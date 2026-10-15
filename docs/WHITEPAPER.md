@@ -213,6 +213,34 @@ Scouts melden vor dem Abtauchen ihre erwartete Offline-Dauer im Heartbeat (`offl
 - Bereiche (Zonen-Ausschnitte) werden pro Job reserviert, damit zwei Miner nie denselben Bereich abbauen.
 - Job-Zustände: `created → assigned → accepted → running → complete | failed | expired`.
 
+### 6.2 Kosten der Leitstelle (Idee)
+
+**Stand:** Die Leitstelle läuft auf Claude Opus 5 (`claude-opus-5`, $5 / $25 pro 1M Tokens Eingabe/Ausgabe) mit
+`effort: "low"` und automatischem Caching und verbraucht etwa 1 USD am Tag. Kosten entstehen nur, wenn jemand die
+Leitstelle anspricht: Jede Frage braucht meist 2–3 API-Aufrufe (Frage, Tool, Antwort), und jeder Aufruf schickt
+Systemtext, Tool-Beschreibungen und den Verlauf (bis zu 40 Nachrichten) mit. Noch nicht umgesetzt.
+
+**Drei Hebel, die sich zusammen umsetzen lassen** (billiger und zugleich besser):
+
+1. **Cache prüfen.** Jede Antwort meldet `usage.cache_read_input_tokens`. Bleibt der Wert bei 0, zahlen Systemtext
+   und Tools jedes Mal den vollen Preis statt etwa ein Zehntel. Prüfen über die Usage-Ansicht der Console oder
+   den Wert im Debug-Modus ausgeben.
+2. **Kürzerer Verlauf.** `MAX_HISTORY` von 40 auf etwa 20 senken. Lange Tool-Ergebnisse (Bürgerliste, Jobliste)
+   nach ein paar Runden durch eine Kurzfassung ersetzen, statt sie bei jedem Aufruf mitzuschicken.
+3. **Wechsel auf Claude Opus 5.5** (`claude-opus-5-5`, $4 / $20, also etwa 20 % billiger, und das neuere Modell).
+   - `effort` weiter ausdrücklich auf `low` setzen: Der Standard ist bei Opus 5.5 `medium` (bei Opus 5 `high`).
+   - **Vorher testen:** Laut API-Doku prüft Opus 5.5, ob frühere Teile des Verlaufs verändert wurden
+     („preserved thinking“). Bei Konten ab dem 31.08.2026 führt das zu einem 400-Fehler. Kandidaten im Code:
+     `trimHistory` (wirft alte Nachrichten vorne raus) und `fixStrings` (schreibt Strings im Verlauf um). Wird
+     Punkt 2 umgesetzt, muss das Kürzen so gebaut sein, dass dieser Check nicht anschlägt.
+   - Die Modell-ID dabei nur noch aus der Einstellung `claude.model` lesen (heute an drei Stellen im Code, siehe R11
+     im Review). Dann ist ein späterer Wechsel ein Befehl im Spiel.
+
+**Weitere Möglichkeiten, falls die Kosten später stören:** Claude Sonnet 5.5 (`claude-sonnet-5-5`, $2 / $10) oder
+Claude Haiku 5.5 (`claude-haiku-5-5`, $0.10 / $0.50) für die Leitstelle; ob die Qualität für die Chat-Befehle
+reicht, müsste ein Test zeigen. Außerdem einen eigenen Workspace mit Ausgabenlimit und einen eigenen API-Key pro
+Gerät in der Console anlegen.
+
 ---
 
 ## 7. WorldMap
@@ -476,6 +504,8 @@ Hinweis: In v2 wandert die Chat Box an den Command Node, und Claude läuft nicht
 **Neu:** Rescue-Rolle frühestens nach P3. P13 kann jederzeit als eigener Strang gebaut werden.
 
 **Idee:** Monitore im Spiel (Abschnitt 9.1) für Gateway und Zentrale, jederzeit nach P3 als eigener Strang.
+
+**Idee:** Kosten der Leitstelle senken (Abschnitt 6.2): Cache prüfen, kürzerer Verlauf, Wechsel auf Claude Opus 5.5.
 
 ---
 
