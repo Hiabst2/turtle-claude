@@ -5,6 +5,7 @@ bootstrap.lua
 startup.lua
 core/store.lua
 core/crypto.lua
+core/text.lua
 net/mq.lua
 claude/agent.lua
 claude/commander.lua

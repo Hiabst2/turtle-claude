@@ -6,6 +6,7 @@
 
 local agent = require("agent")
 local version = require("version")
+local text = require("text")
 
 local M = {}
 M.ASK_TIMEOUT = 8 -- Sekunden, die auf eine Antwort gewartet wird
@@ -67,18 +68,22 @@ function M.new(opts)
     return c.labels[id] or ("#" .. tostring(id))
   end
 
-  -- Meldungen, die nicht Antwort auf eine Frage sind (Abo: job.complete, job.fail)
+  -- Meldungen, die nicht Antwort auf eine Frage sind (Abo: job.state - das Urteil der Zentrale, R5)
   function c.onMessage(m)
     local p = type(m.payload) == "table" and m.payload or {}
     local text
-    if m.topic == "job.complete" then
-      text = ("Auftrag %s fertig (%s): %s"):format(tostring(p.id), label(m.source), tostring(p.result or ""))
-    elseif m.topic == "job.fail" and tostring(p.reason):find("abgebrochen", 1, true) then
-      text = ("Auftrag %s abgebrochen (%s): %s"):format(tostring(p.id), label(m.source),
-        (tostring(p.reason):gsub("^Gestoppt: abgebrochen[^\n]*\n?", "")))
-    elseif m.topic == "job.fail" then
-      text = ("Auftrag %s: %s meldet Problem: %s%s"):format(tostring(p.id), label(m.source), tostring(p.reason or "?"),
-        p.retry and " (wird erneut versucht)" or "")
+    if m.topic ~= "job.state" then return end
+    local who = label(p.worker)
+    if p.state == "complete" then
+      text = ("Auftrag %s fertig (%s): %s"):format(tostring(p.id), who, tostring(p.result or ""))
+    elseif p.state == "cancelled" and p.result then
+      text = ("Auftrag %s abgebrochen (%s): %s"):format(tostring(p.id), who,
+        (tostring(p.result):gsub("^Gestoppt: abgebrochen[^\n]*\n?", "")))
+    elseif p.state == "created" and p.retry then
+      text = ("Auftrag %s: %s meldet Problem: %s (wird erneut versucht)"):format(tostring(p.id), who,
+        tostring(p.reason or "?"))
+    elseif p.state == "failed" then
+      text = ("Auftrag %s gescheitert (%s): %s"):format(tostring(p.id), who, tostring(p.reason or "?"))
     end
     if text then
       c.agent:reply(text:sub(1, 800), true)
@@ -89,7 +94,8 @@ function M.new(opts)
   local lastBeat
   function c.start()
     node:register({ "command" }, { label = opts.name, role = "command", mode = "online" })
-    node:subscribe({ "job.complete", "job.fail" })
+    node:send("gateway", "mq.unsubscribe", { topics = { "job.complete", "job.fail" } }) -- altes Abo (vor R5)
+    node:subscribe({ "job.state" })
     node:flush()
   end
 
@@ -157,8 +163,21 @@ function M.new(opts)
     elseif input.x ~= nil then
       p.params.start = { x = input.x, y = input.y, z = input.z, f = FACINGS[input.facing or "nord"] or 2 }
     end
+    -- R6: kam auf dieselbe Anfrage keine Antwort, mit derselben request_id nochmal - die Zentrale erkennt sie
+    local key = text.canonical(p)
+    local now = node.now()
+    if c.unsure and c.unsure.key == key and now - c.unsure.at < 600 * 1000 then
+      p.request_id = c.unsure.rid
+    else
+      p.request_id = ("%d-%d-%d"):format(os.getComputerID(), now, math.random(1, 999999))
+    end
     local r = c.ask("job", "job.create", p)
-    if not r then return "Die Zentrale antwortet nicht, Auftrag vielleicht nicht angelegt (jobs_list pruefen)." end
+    if not r then
+      c.unsure = { key = key, rid = p.request_id, at = now }
+      return "Die Zentrale antwortet nicht, Auftrag vielleicht nicht angelegt. Nochmal job_create mit denselben "
+        .. "Angaben ist sicher (kein doppelter Auftrag)."
+    end
+    c.unsure = nil
     if r.error then return "Nicht angelegt: " .. r.error end
     return ("Auftrag %s angelegt (%s%s). Die Zentrale gibt ihn der naechsten passenden Turtle."):format(r.id, p.type,
       p.params.start and (" ab " .. fmtPos(p.params.start)) or "")

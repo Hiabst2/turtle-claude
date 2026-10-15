@@ -39,6 +39,17 @@ function M.clip(text, width)
   return text:sub(1, width - 3) .. "..."
 end
 
+-- Wert als Text mit sortierten Schluesseln: gleicher Inhalt ergibt immer denselben Text (zum Vergleichen)
+function M.canonical(v)
+  if type(v) ~= "table" then return type(v) == "string" and ("%q"):format(v) or tostring(v) end
+  local keys = {}
+  for k in pairs(v) do keys[#keys + 1] = k end
+  table.sort(keys, function(a, b) return tostring(a) < tostring(b) end)
+  local parts = {}
+  for _, k in ipairs(keys) do parts[#parts + 1] = tostring(k) .. "=" .. M.canonical(v[k]) end
+  return "{" .. table.concat(parts, ",") .. "}"
+end
+
 -- Zeilen { text, farbe } ab Zeile y zeichnen (jede Zeile wird vorher geleert)
 function M.draw(rows, y)
   for i, r in ipairs(rows) do

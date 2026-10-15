@@ -68,6 +68,10 @@ end
 
 -- Auftrag anlegen. p = { type, params, area, priority, role, requires }
 function Service:create(p, by)
+  -- R6: dieselbe Anfrage nochmal (z.B. nach Timeout bei der Leitstelle) -> vorhandenen Auftrag liefern
+  self.state.requests = self.state.requests or {}
+  local known = p.request_id and self.state.requests[p.request_id]
+  if known and self.state.jobs[known] then return self.state.jobs[known] end
   if not M.TYPES[p.type] then return nil, "unbekannter Auftragstyp: " .. tostring(p.type) end
   if p.area ~= nil and not normArea(p.area) then return nil, "Bereich braucht x1 y1 z1 x2 y2 z2" end
   local now = self:now()
@@ -81,6 +85,15 @@ function Service:create(p, by)
     created_by = by, created_at = now, updated_at = now,
   }
   self.state.jobs[id] = job
+  if p.request_id then
+    self.state.requests[p.request_id] = id
+    -- nur die letzten 50 merken
+    self.state.requestOrder = self.state.requestOrder or {}
+    table.insert(self.state.requestOrder, p.request_id)
+    while #self.state.requestOrder > 50 do
+      self.state.requests[table.remove(self.state.requestOrder, 1)] = nil
+    end
+  end
   self:save()
   self:note(("%s angelegt: %s"):format(id, job.type))
   return job
@@ -147,7 +160,17 @@ function Service:assign(job, workerId)
 end
 
 -- Auftrag zurueck in die Warteschlange oder nach zu vielen Versuchen aufgeben
+-- R5: Zustandswechsel an alle Abonnenten von "job.state" (z.B. die Leitstelle) - das Urteil der Zentrale,
+-- nicht die Nachricht des Workers. worker: wer zuletzt daran gearbeitet hat.
+function Service:publish(job, worker, retry)
+  self.host.send("gateway", "job.state", {
+    id = job.id, type = job.type, state = job.state, worker = worker or job.worker,
+    result = job.result, reason = job.reason, retry = retry or nil,
+  }, { ttl = 600 })
+end
+
 function Service:requeue(job, reason, retry)
+  local worker = job.worker
   job.attempts = job.attempts + 1
   job.reason = reason
   job.worker, job.lease_until = nil, nil
@@ -155,9 +178,11 @@ function Service:requeue(job, reason, retry)
   if retry ~= false and job.attempts < M.MAX_ATTEMPTS then
     job.state = "created"
     self:note(("%s zurueck in die Warteschlange: %s"):format(job.id, tostring(reason)))
+    self:publish(job, worker, true)
   else
     job.state = "failed"
     self:note(("%s fehlgeschlagen: %s"):format(job.id, tostring(reason)))
+    self:publish(job, worker)
   end
 end
 
@@ -256,6 +281,7 @@ function Service:handle(msg)
       job.updated_at = now
       self:note(job.id .. " abgebrochen, Ergebnis der Turtle gespeichert")
       self:save()
+      self:publish(job)
       return true
     end
     if not current then
@@ -274,6 +300,7 @@ function Service:handle(msg)
     elseif topic == "job.complete" then
       job.state, job.result, job.lease_until = "complete", p.result, nil
       self:note(job.id .. " fertig")
+      self:publish(job)
     else
       self:requeue(job, p.reason or "Fehler beim Worker", p.retry)
     end

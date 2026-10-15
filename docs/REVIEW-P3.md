@@ -16,8 +16,9 @@
 | R2 | **erledigt** | Aufräumen nach Abbruch/Entzug: Kiste holen, heim (`a7048e7`); Kiste steht an der Oberfläche (`44a634c`). Neues Folgeproblem siehe R13 |
 | R3 | **erledigt** | GPS-Kontrolle beim Start und alle 10 min (`e1eed33`); `store.load` liest jetzt erst `.tmp`, dann `.bak`, mit Test |
 | R4 | **erledigt** | leere Eingaben setzen keine Einstellung mehr auf `nil`, mit Test (`38fdd67`) |
-| R5 | teilweise | Abbruch wird als „abgebrochen“ mit Zwischenstand gemeldet, die Zentrale speichert ihn (`eff0f64`). Die Leitstelle hört aber weiter die Worker-Meldung statt das Urteil der Zentrale |
-| R6–R10 | offen | unverändert |
+| R5 | **erledigt** | bestätigt per Test (doppelte und unbekannte Meldungen wurden angesagt). Zentrale veröffentlicht `job.state` bei jedem Zustandswechsel (fertig, zurück in die Warteschlange, gescheitert, abgebrochen mit Zwischenstand); die Leitstelle abonniert nur das |
+| R6 | **erledigt** | bestätigt per Test. Ohne Antwort merkt sich die Leitstelle die `request_id`; dieselbe Anfrage nochmal schickt dieselbe ID, `jobsvc` liefert den vorhandenen Auftrag (letzte 50 gemerkt). Gewollt gleiche Aufträge bleiben getrennt |
+| R7–R10 | offen | unverändert |
 | R11 | teilweise | Leitstelle liest das Modell nur noch aus `claude.model` (Standard `claude-opus-5-5`); die alte Claude-Turtle (`apps/claude.lua`) hat weiter `claude-opus-5` fest |
 | R12 | **erledigt** | Whitepaper liegt in `docs/WHITEPAPER.md`, `docs/PROGRESS.md` verweist darauf |
 | R13 | **erledigt** | bestätigt per Test. Weitere Cancel/Revoke nach `job.stop` ignoriert; Heimweg in `tidyUp` in `pcall`; `worker` ruft `safeStep` (Fehler angezeigt, nur Strg+T beendet). Zusätzlich gefunden: war `job.stop` schon vor dem Schritt gesetzt, wurde gar nicht aufgeräumt – behoben, mit Test |

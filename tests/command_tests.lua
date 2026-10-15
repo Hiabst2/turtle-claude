@@ -13,12 +13,12 @@ local function setup()
   local map = require("mapsvc").new(host, { dir = "/central" })
   host.add("map", map)
   host.add("path", require("pathsvc").new(host))
-  local busy = false
+  local busy, centralDown = false, false
   local function step()
     if busy then return end
     busy = true
     broker:step(0)
-    host.step(0)
+    if not centralDown then host.step(0) end
     busy = false
   end
   -- Warten auf Funk: Gateway und Zentrale arbeiten parallel, die Zeit laeuft
@@ -40,7 +40,8 @@ local function setup()
     chatBox = cc.chatBox })
   c.start()
   step()
-  return { c = c, jobs = jobs, map = map, net = net, step = step }
+  return { c = c, jobs = jobs, map = map, net = net, step = step,
+    centralDown = function(v) centralDown = v end }
 end
 
 test("Leitstelle: Auftrag anlegen mit Startpunkt", function()
@@ -123,18 +124,67 @@ test("Leitstelle: Fremde duerfen fragen, aber keine Auftraege anlegen", function
   assert(lastMsg(cc.sent[4]).content[1].content:find("Keine aktuellen Auftraege"))
 end)
 
-test("Leitstelle: fertige und gescheiterte Auftraege werden von selbst gemeldet", function()
+-- R5 (docs/REVIEW-P3.md): die Leitstelle meldet, was die Zentrale entschieden hat - nicht die Worker-Nachricht
+test("Leitstelle: meldet fertige und gescheiterte Auftraege nach dem Urteil der Zentrale", function()
   local w = setup()
   local turtle = w.net.node(7)
-  turtle:send("job", "job.complete", { id = "J1", epoch = 1, result = "Fertig. 12 Erzbloecke" })
-  turtle:send("job", "job.fail", { id = "J2", epoch = 1, reason = "Lava", retry = true })
+  local j1 = w.jobs:create({ type = "tunnel" }, "t")
+  w.jobs:assign(j1, 7)
+  local j2 = w.jobs:create({ type = "tunnel" }, "t")
+  w.jobs:assign(j2, 7)
+  turtle:send("job", "job.complete", { id = j1.id, epoch = 1, result = "Fertig. 12 Erzbloecke" })
+  turtle:send("job", "job.complete", { id = j1.id, epoch = 1, result = "Fertig. 12 Erzbloecke" }) -- doppelt
+  turtle:send("job", "job.fail", { id = j2.id, epoch = 1, reason = "Lava", retry = true })
+  turtle:send("job", "job.complete", { id = "J99", epoch = 1, result = "Fertig. veraltet" }) -- unbekannt
   turtle:flush()
-  w.step()
+  for _ = 1, 3 do w.step() end
   w.c.tick(1)
   local text = table.concat(cc.chat, " | ")
-  assert(text:find("Auftrag J1 fertig") and text:find("12 Erzbloecke"), text)
-  assert(text:find("Auftrag J2") and text:find("Lava") and text:find("erneut versucht"), text)
+  local _, n = text:gsub("Auftrag J1 fertig", "")
+  eq(n, 1, "fertig genau einmal: " .. text)
+  assert(text:find("12 Erzbloecke", 1, true), text)
+  assert(text:find("Auftrag J2", 1, true) and text:find("Lava", 1, true) and text:find("erneut versucht", 1, true), text)
+  assert(not text:find("veraltet", 1, true), "Meldung, die die Zentrale nicht angenommen hat: " .. text)
   eq(#w.c.agent.notes, 2, "Claude erfaehrt es mit der naechsten Nachricht")
+end)
+
+test("Leitstelle: Abbruch wird mit dem Zwischenstand der Turtle gemeldet", function()
+  local w = setup()
+  local turtle = w.net.node(7)
+  local j = w.jobs:create({ type = "orehunt" }, "t")
+  w.jobs:assign(j, 7)
+  w.jobs:cancel(j.id)
+  turtle:send("job", "job.fail", { id = j.id, epoch = 1, retry = false,
+    reason = "Gestoppt: abgebrochen (Zentrale)\nBisher Abgebaut: 40 Bloecke, davon 9 Erz. Erze: iron x9" })
+  turtle:flush()
+  for _ = 1, 3 do w.step() end
+  w.c.tick(1)
+  local text = table.concat(cc.chat, " | ")
+  assert(text:find("Auftrag J1 abgebrochen", 1, true) and text:find("iron x9", 1, true), text)
+  assert(not text:find("Gestoppt: abgebrochen", 1, true), "ohne doppelten Vorspann: " .. text)
+end)
+
+-- R6: Wiederholung nach einem Timeout legt keinen zweiten Auftrag an
+test("Leitstelle: job_create nach Timeout nochmal -> kein doppelter Auftrag", function()
+  local w = setup()
+  w.centralDown(true)
+  local res1 = w.c.tools.job_create({ type = "tunnel", x = 710, y = 40, z = 610, length = 20 })
+  assert(res1:find("antwortet nicht", 1, true), res1)
+  w.centralDown(false)
+  local res2 = w.c.tools.job_create({ type = "tunnel", x = 710, y = 40, z = 610, length = 20 })
+  assert(res2:find("J1", 1, true), res2)
+  for _ = 1, 3 do w.step() end
+  local n = 0
+  for _ in pairs(w.jobs.state.jobs) do n = n + 1 end
+  eq(n, 1, "nur ein Auftrag")
+end)
+
+test("Leitstelle: zwei gewollt gleiche Auftraege bleiben zwei", function()
+  local w = setup()
+  local res1 = w.c.tools.job_create({ type = "tunnel", x = 710, y = 40, z = 610, length = 20 })
+  local res2 = w.c.tools.job_create({ type = "tunnel", x = 710, y = 40, z = 610, length = 20 })
+  assert(res1:find("J1", 1, true), res1)
+  assert(res2:find("J2", 1, true), res2)
 end)
 
 test("Leitstelle: Fehler in einem Tool zerstoert den Verlauf nicht", function()
