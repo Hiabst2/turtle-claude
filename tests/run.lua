@@ -362,6 +362,75 @@ test("Bildschirm: bootstrap und update passen auf die Turtle, leere Eingaben geh
   assert(ok, err)
 end)
 
+test("Bildschirm: Worker passt auf die Turtle (39x13), auch mit langen Meldungen", function()
+  local screen = require("screen")
+  settings.values["mq.enabled"] = true
+  cc.label = "Miner-mit-sehr-langem-Namen-1234567890"
+  local runner = require("jobrunner")
+  runner.init()
+  runner.setPrinter(function() end)
+  runner.say(("Heimweg gescheitert: Darf hier nicht graben, x=1 y=2 z=3 liegt in keiner Zone. "):rep(3))
+  require("sync").onMessage({ topic = "job.none", payload = { reasons = ("J1: fehlt geo_scanner, chest; "):rep(6) } })
+  local s = screen.new(39, 13)
+  screen.run(s, runner.draw)
+  eq(s.scrolled, 0, "aus dem Bild gescrollt
+" .. s.dump())
+  eq(s.clipped, 0, "abgeschnitten
+" .. s.dump())
+  assert(s.line(1):find("^Worker"), s.dump())
+  eq(s.line(13), runner.HELP, "Tastenhilfe unten
+" .. s.dump())
+  assert(s.dump():find("Kein passender") and s.dump():find("Zuletzt"), s.dump())
+end)
+
+test("Bildschirm: Gateway passt auf den Computer (51x19), auch mit vielen Geraeten", function()
+  local screen = require("screen")
+  local node = { id = 1, rejected = 2, lastRejected = 99, now = function() return 10 ^ 9 end,
+    pending = function() return 3 end, list = function() return { {} } end }
+  local b = require("broker").new(node, { dir = "/.gw" })
+  for i = 1, 25 do
+    b.state.devices[i] = { id = i, label = "Turtle-mit-langem-Namen-" .. i, role = "miner", interval = 60,
+      last_seen = 10 ^ 9 - 5000, pos = { x = -12345, y = 64, z = 67890 }, fuel = 99999,
+      job = "J" .. i .. " orehunt 3/4 Nachscan 2" }
+  end
+  for i = 1, 8 do b.log[i] = { source = i, target = "gateway", topic = "worker.heartbeat" } end
+  local s = screen.new(51, 19)
+  screen.run(s, function() b:draw(4242) end)
+  eq(s.scrolled, 0, "aus dem Bild gescrollt
+" .. s.dump())
+  eq(s.clipped, 0, "abgeschnitten
+" .. s.dump())
+  assert(s.line(1):find("^TurtleMQ Gateway"), s.dump())
+  assert(s.dump():find("weitere Geraete"), "Hinweis auf weitere Geraete fehlt
+" .. s.dump())
+  eq(s.line(14), ("-"):rep(51), "Trennlinie ueber den letzten 5 Nachrichten
+" .. s.dump())
+end)
+
+test("Rollen: jede Rolle bekommt alle Module, die ihre Dateien laden", function()
+  local function lines(file)
+    local t = {}
+    for l in io.lines(file) do if not l:match("^%s*#") and l ~= "" then t[#t + 1] = l end end
+    return t
+  end
+  -- startup/update/bootstrap laufen in jeder Rolle und laden rollenabhaengig, die zaehlen hier nicht
+  local SKIP = { ["startup.lua"] = true, ["update.lua"] = true, ["bootstrap.lua"] = true }
+  for _, role in ipairs({ "turtle", "miner", "gps", "gateway", "central", "command" }) do
+    local have, paths = {}, lines("roles/" .. role .. ".txt")
+    for _, path in ipairs(paths) do have[path:match("[^/]+$")] = true end
+    for _, path in ipairs(paths) do
+      if not SKIP[path] then
+        local f = assert(io.open(path))
+        local code = f:read("*a")
+        f:close()
+        for name in code:gmatch('require%("([%w_]+)"%)') do
+          assert(have[name .. ".lua"], ("%s: %s braucht %s.lua, fehlt in roles/%s.txt"):format(role, path, name, role))
+        end
+      end
+    end
+  end
+end)
+
 test("B9: nextOre sucht nur rund um den aktuellen Scan", function()
   local store = require("store")
   store.save("/.nav", { pos = { x = 0, y = 0, z = 0, f = 0 }, home = { x = 0, y = 0, z = 0, f = 0 }, gps = true })

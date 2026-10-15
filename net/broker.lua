@@ -12,6 +12,7 @@
 -- ihm sofort seine Post (siehe gateway.lua). Persistiert in /.gateway/state.
 
 local store = require("store")
+local text = require("text")
 
 local M = {}
 M.DEFAULT_INTERVAL = 60 -- Sekunden zwischen Lebenszeichen, wenn ein Geraet nichts anderes meldet
@@ -237,14 +238,63 @@ function Broker:statusLines(now)
       self:stateOf(d, now),
       d.last_seen and ("vor " .. ago(now - d.last_seen)) or "",
     }
-    if type(d.pos) == "table" then parts[#parts + 1] = ("%s %s %s"):format(tostring(d.pos.x), tostring(d.pos.y), tostring(d.pos.z)) end
-    if d.fuel then parts[#parts + 1] = "Fuel " .. tostring(d.fuel) end
+    -- wichtiges zuerst: auf dem Bildschirm wird die Zeile hinten gekuerzt
     if d.job then parts[#parts + 1] = tostring(d.job) end
+    if d.fuel then parts[#parts + 1] = "Fuel " .. tostring(d.fuel) end
     local mail = self.node:pending(d.id)
     if mail > 0 then parts[#parts + 1] = mail .. " Post" end
+    if type(d.pos) == "table" then parts[#parts + 1] = ("%s %s %s"):format(tostring(d.pos.x), tostring(d.pos.y), tostring(d.pos.z)) end
     lines[#lines + 1] = table.concat(parts, "  ")
   end
   return lines
+end
+
+-- Bildschirm des Gateways (Computer 51x19). Jede Zeile wird einzeln gesetzt und auf die Breite gekuerzt,
+-- so scrollt bei vielen Geraeten oder langen Namen nichts aus dem Bild. Unten die letzten Nachrichten.
+-- channel: Funkkanal fuer die Kopfzeile
+function Broker:draw(channel)
+  local w, h = term.getSize()
+  local node = self.node
+  local top = {
+    { text.clip(("TurtleMQ Gateway #%s  Kanal %s  Outbox %d"):format(tostring(node.id), tostring(channel),
+      node:pending()), w), colors.yellow },
+  }
+  if node.rejected > 0 then
+    local from = self.state.devices[node.lastRejected]
+    local msg = ("%d Paket(e) mit falscher/fehlender Signatur abgelehnt, zuletzt von %s"):format(node.rejected,
+      from and from.label or ("#" .. tostring(node.lastRejected)))
+    for _, r in ipairs(text.wrap(msg, w, 2)) do top[#top + 1] = { r, colors.orange } end
+  end
+  local dead = #node:list("dead")
+  if dead > 0 then
+    top[#top + 1] = { text.clip(dead .. " Nachricht(en) nicht verarbeitbar, siehe /.mq/dead/", w), colors.red }
+  end
+
+  -- Geraete mit Namen statt Computer-ID anzeigen, soweit bekannt
+  local function name(id)
+    local d = self.state.devices[id]
+    return d and d.label or tostring(id)
+  end
+  local bottom = { { ("-"):rep(w), colors.gray } }
+  for i = 1, math.min(#self.log, 5) do
+    local e = self.log[i]
+    bottom[#bottom + 1] = { text.clip(("%s -> %s  %s"):format(name(e.source), name(e.target), tostring(e.topic)), w),
+      colors.gray }
+  end
+
+  local lines = self:statusLines()
+  local room = h - #top - #bottom
+  local devices = {}
+  for i = 1, math.min(#lines, room) do devices[i] = { text.clip(lines[i], w), colors.white } end
+  if #lines > room and room > 0 then
+    devices[room] = { text.clip(("... und %d weitere Geraete"):format(#lines - room + 1), w), colors.lightGray }
+  end
+
+  term.clear()
+  text.draw(top, 1)
+  text.draw(devices, #top + 1)
+  text.draw(bottom, h - #bottom + 1)
+  term.setTextColor(colors.white)
 end
 
 return M

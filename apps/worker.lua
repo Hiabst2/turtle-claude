@@ -11,21 +11,8 @@ if not sync.enabled() then
 end
 runner.init()
 
-local function draw()
-  term.clear()
-  term.setCursorPos(1, 1)
-  term.setTextColor(colors.yellow)
-  print("Worker " .. tostring(os.getComputerLabel() or ("#" .. os.getComputerID())))
-  term.setTextColor(colors.white)
-  local w = term.getSize()
-  for _, line in ipairs(runner.status()) do
-    if #line > 2 * w then line = line:sub(1, 2 * w - 3) .. "..." end -- Rest steht in diag
-    print(line)
-  end
-  term.setTextColor(colors.gray)
-  print("P = Pause/weiter   Q = Shell")
-  term.setTextColor(colors.white)
-end
+-- der Bildschirm steht in jobrunner.draw (dort prueft ihn ein Test auf 39x13)
+local draw = runner.draw
 
 local function work()
   while true do

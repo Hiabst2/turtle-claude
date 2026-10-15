@@ -6,6 +6,7 @@ startup.lua
 core/store.lua
 core/cost.lua
 core/crypto.lua
+core/text.lua
 net/mq.lua
 net/sync.lua
 turtle/zones.lua

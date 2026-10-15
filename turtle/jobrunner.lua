@@ -15,6 +15,7 @@ local mine = require("mine")
 local gear = require("gear")
 local sync = require("sync")
 local zones = require("zones")
+local text = require("text")
 
 local M = {}
 
@@ -542,7 +543,10 @@ function M.status()
   local job = state.job
   -- 1. Was macht sie gerade?
   if job then
-    lines[#lines + 1] = ("Auftrag %s: %s %s"):format(job.id, job.type, sync.getJob() or "")
+    -- sync.getJob() ist z.B. "J5 orehunt" oder "orehunt 2/4": Auftrag und Typ nicht doppelt anzeigen
+    local doing = (sync.getJob() or job.type):gsub("^" .. tostring(job.id) .. " ", "")
+    if not doing:find(job.type, 1, true) then doing = job.type .. " " .. doing end
+    lines[#lines + 1] = ("Auftrag %s: %s"):format(job.id, doing)
   elseif state.paused then
     lines[#lines + 1] = "PAUSIERT (P = weiter)"
   elseif sync.enabled() and not mapFresh and gear.has("modem") then
@@ -572,6 +576,24 @@ function M.status()
   -- 4. Letzte Meldung
   if lastSay then lines[#lines + 1] = "Zuletzt: " .. lastSay end
   return lines
+end
+
+-- Bildschirm des Worker-Diensts. Passt auf die Turtle (39x13): jede Angabe hoechstens 2 Zeilen, Zeilen
+-- werden einzeln gesetzt (kein Scrollen), die Tastenhilfe steht immer unten. Den Rest zeigt diag.
+M.HELP = "P = Pause/weiter   Q = Shell"
+function M.draw()
+  local w, h = term.getSize()
+  local rows = {}
+  local function add(line, color, max)
+    for _, r in ipairs(text.wrap(line, w, max)) do rows[#rows + 1] = { r, color } end
+  end
+  rows[1] = { text.clip("Worker " .. tostring(os.getComputerLabel() or ("#" .. os.getComputerID())), w), colors.yellow }
+  for _, line in ipairs(M.status()) do add(line, colors.white, 2) end
+  while #rows > h - 1 do table.remove(rows) end -- sehr viele Warnungen: unten kuerzen
+  term.clear()
+  text.draw(rows, 1)
+  text.draw({ { text.clip(M.HELP, w), colors.gray } }, h)
+  term.setTextColor(colors.white)
 end
 
 -- Alles Weitere fuer diag (Koordinaten, Toolbox, Funk-Zaehler)
