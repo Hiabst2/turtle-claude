@@ -14,13 +14,13 @@
 |---|---|---|
 | R1 | **erledigt** | `nav.onMove` → `sync.maybe` bei jeder Bewegung (`eff0f64`); Anfahrt, Ausladen und Heimfahrt verlängern jetzt die Lease |
 | R2 | **erledigt** | Aufräumen nach Abbruch/Entzug: Kiste holen, heim (`a7048e7`); Kiste steht an der Oberfläche (`44a634c`). Neues Folgeproblem siehe R13 |
-| R3 | teilweise | GPS-Kontrolle beim Start und alle 10 min fängt eine verrutschte Position ab (`e1eed33`). `store.load` liest weiterhin `.bak` vor `.tmp` |
+| R3 | **erledigt** | GPS-Kontrolle beim Start und alle 10 min (`e1eed33`); `store.load` liest jetzt erst `.tmp`, dann `.bak`, mit Test |
 | R4 | **erledigt** | leere Eingaben setzen keine Einstellung mehr auf `nil`, mit Test (`38fdd67`) |
 | R5 | teilweise | Abbruch wird als „abgebrochen“ mit Zwischenstand gemeldet, die Zentrale speichert ihn (`eff0f64`). Die Leitstelle hört aber weiter die Worker-Meldung statt das Urteil der Zentrale |
 | R6–R10 | offen | unverändert |
 | R11 | teilweise | Leitstelle liest das Modell nur noch aus `claude.model` (Standard `claude-opus-5-5`); die alte Claude-Turtle (`apps/claude.lua`) hat weiter `claude-opus-5` fest |
 | R12 | **erledigt** | Whitepaper liegt in `docs/WHITEPAPER.md`, `docs/PROGRESS.md` verweist darauf |
-| R13 | **neu, hoch** | siehe unten |
+| R13 | **erledigt** | bestätigt per Test. Weitere Cancel/Revoke nach `job.stop` ignoriert; Heimweg in `tidyUp` in `pcall`; `worker` ruft `safeStep` (Fehler angezeigt, nur Strg+T beendet). Zusätzlich gefunden: war `job.stop` schon vor dem Schritt gesetzt, wurde gar nicht aufgeräumt – behoben, mit Test |
 
 ---
 

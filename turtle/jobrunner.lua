@@ -108,8 +108,12 @@ local function tidyUp(job)
     save()
   end
   if nav.homeKnown() and not atHome() then
-    local ok = goHomeSafe()
-    notes = notes .. (ok and "\nBin heimgefahren." or "\nHeimweg gescheitert.")
+    local ok, res, err = pcall(goHomeSafe)
+    if ok and res then
+      notes = notes .. "\nBin heimgefahren."
+    else
+      notes = notes .. "\nHeimweg gescheitert: " .. tostring(ok and err or res)
+    end
   end
   return notes
 end
@@ -262,7 +266,9 @@ local function onMessage(msg)
     M.say(("Neuer Auftrag %s: %s"):format(tostring(p.id), tostring(p.type)))
   elseif msg.topic == "job.cancel" or msg.topic == "job.revoke" then
     local job = state.job
-    if job and job.id == p.id and job.result == nil then
+    -- nur das erste Signal zaehlt: ein zweites Revoke (beim Entzug der Normalfall) wuerde sonst das
+    -- Aufraeumen abbrechen
+    if job and job.id == p.id and job.result == nil and not job.stop then
       job.stop = msg.topic == "job.cancel" and "abgebrochen (Zentrale)" or "entzogen (Lease abgelaufen)"
       save()
       nav.abort()
@@ -457,9 +463,10 @@ function M.step()
     if not mapFresh then return "warte auf Karte" end
   end
   local job = state.job
-  if job and job.result == nil and not job.stop then
+  if job and job.result == nil then
     nav.resetAbort() -- alte Abbrueche vergessen; VOR dem Sync, sonst ginge ein frischer job.cancel verloren
-    if not job.accepted then pcall(sync.run) end -- Annahme sofort melden (dabei kann schon cancel kommen)
+    -- Annahme sofort melden (dabei kann schon cancel kommen)
+    if not job.accepted and not job.stop then pcall(sync.run) end
     local res
     if job.stop then
       res = "Gestoppt: " .. job.stop
@@ -581,6 +588,17 @@ end
 -- Bildschirm des Worker-Diensts. Passt auf die Turtle (39x13): jede Angabe hoechstens 2 Zeilen, Zeilen
 -- werden einzeln gesetzt (kein Scrollen), die Tastenhilfe steht immer unten. Den Rest zeigt diag.
 M.HELP = "P = Pause/weiter   Q = Shell"
+-- Eine Runde wie step, aber ein Fehler beendet nie den Worker-Dienst: er wird angezeigt, dann geht es weiter.
+-- Nur Strg+T ("Terminated") beendet das Programm.
+function M.safeStep()
+  local ok, err = pcall(M.step)
+  if ok then return err end
+  if err == "Terminated" then error(err, 0) end
+  M.say("Fehler: " .. tostring(err))
+  sleep(5)
+  return "fehler"
+end
+
 function M.draw()
   local w, h = term.getSize()
   local rows = {}

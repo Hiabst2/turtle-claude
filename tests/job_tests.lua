@@ -1502,3 +1502,88 @@ test("Worker: lange Erzliste kommt vollstaendig bei der Zentrale an", function()
   eq(j.state, "complete")
   assert(j.result:find("diamond x2$"), "Ende abgeschnitten: " .. j.result)
 end)
+
+-- R13 / R3 (docs/REVIEW-P3.md) ------------------------------------------------------------------
+
+test("R13: zweites Revoke waehrend des Aufraeumens loest keinen zweiten Abbruch aus", function()
+  local w = world()
+  local runner, done = realTurtle(w)
+  local nav, sync = require("nav"), require("sync")
+  local aborts = 0
+  local abort = nav.abort
+  nav.abort = function() aborts = aborts + 1 return abort() end
+  runner.state().job = { id = "J7", epoch = 2, type = "tunnel", params = {} }
+  local revoke = { topic = "job.revoke", payload = { id = "J7", epoch = 2 } }
+  sync.onMessage(revoke)
+  sync.onMessage(revoke) -- zweites Revoke: kommt beim Entzug im Normalfall (siehe Review R13)
+  nav.abort = abort
+  done()
+  eq(aborts, 1, "nur das erste Revoke bricht ab")
+  assert(runner.state().job.stop:find("entzogen"), runner.state().job.stop)
+end)
+
+test("R13: Fehler beim Heimweg im Aufraeumen beendet den Worker nicht", function()
+  local w = world()
+  local runner, done = realTurtle(w)
+  local nav = require("nav")
+  nav.calibrate = function() return true end
+  runner.step() -- Karte holen
+  -- Auftrag wurde zwischen zwei Schritten entzogen, die Turtle steht nicht daheim
+  runner.state().job = { id = "J8", epoch = 1, type = "tunnel", params = {}, accepted = true,
+    stop = "entzogen (Lease abgelaufen)" }
+  nav.goTo(710, 40, 605, "xzy")
+  local goHome = nav.goHome
+  nav.goHome = function() error("abgebrochen", 0) end
+  local ok, err = pcall(runner.step)
+  nav.goHome = goHome
+  done()
+  assert(ok, "step darf nicht abstuerzen: " .. tostring(err))
+  eq(runner.state().job, nil, "Auftrag abgeschlossen und gemeldet")
+end)
+
+test("R13: Auftrag vor dem Schritt entzogen - Worker raeumt trotzdem auf (Kiste holen)", function()
+  local w = world()
+  local runner, done = realTurtle(w)
+  local nav, mine = require("nav"), require("mine")
+  nav.calibrate = function() return true end
+  runner.step()
+  local fetched
+  local fetch = mine.fetchChest
+  mine.fetchChest = function(c) fetched = c return true end
+  runner.state().job = { id = "J9", epoch = 1, type = "orehunt", params = {}, accepted = true,
+    stop = "abgebrochen (Zentrale)", chest = { x = 711, y = 71, z = 611, f = 0, stand = { x = 710, y = 71, z = 611 } } }
+  runner.step()
+  mine.fetchChest = fetch
+  done()
+  assert(fetched, "Kiste nicht geholt")
+  eq(runner.state().job, nil)
+end)
+
+test("R13: safeStep faengt Fehler ab und zeigt sie, Strg+T beendet trotzdem", function()
+  local w = world()
+  local runner, done = realTurtle(w)
+  local step = runner.step
+  runner.step = function() error("kaputt", 0) end
+  local ok = pcall(runner.safeStep)
+  local status = table.concat(runner.status(), " | ")
+  runner.step = function() error("Terminated", 0) end
+  local ok2, err2 = pcall(runner.safeStep)
+  runner.step = step
+  done()
+  assert(ok, "Fehler darf den Worker nicht beenden")
+  assert(status:find("Fehler: kaputt", 1, true), status)
+  eq(ok2, false) eq(err2, "Terminated")
+end)
+
+test("R3: store.load - Absturz zwischen den Umbenennungen liefert den neuen Stand", function()
+  local store = require("store")
+  cc.writeFile("/r3.tmp", textutils.serialize({ v = "neu" }))
+  cc.writeFile("/r3.bak", textutils.serialize({ v = "alt" }))
+  local t, why, fromBackup = store.load("/r3")
+  eq(t and t.v, "neu", "erst .tmp, dann .bak")
+  eq(fromBackup, true)
+  -- unvollstaendiges .tmp (Absturz beim Schreiben) -> Sicherung
+  cc.writeFile("/r3.tmp", "{ v = \"halb")
+  t = store.load("/r3")
+  eq(t and t.v, "alt")
+end)

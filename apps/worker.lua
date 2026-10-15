@@ -17,7 +17,7 @@ local draw = runner.draw
 local function work()
   while true do
     draw()
-    runner.step()
+    runner.safeStep() -- Fehler werden angezeigt, der Dienst laeuft weiter
     draw()
     sleep(1)
   end

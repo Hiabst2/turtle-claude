@@ -34,11 +34,12 @@ end
 function M.load(path)
   local tbl = read(path)
   if tbl then return tbl end
-  local backup = read(path .. ".bak")
-  if backup then return backup, nil, true end
-  -- ein .tmp ohne Hauptdatei: Absturz genau zwischen den beiden Umbenennungen
+  -- ein lesbares .tmp ohne Hauptdatei: Absturz genau zwischen den beiden Umbenennungen, .tmp ist der
+  -- neue, vollstaendige Stand. Ein halb geschriebenes .tmp ist nicht lesbar -> Sicherung.
   local tmp = read(path .. ".tmp")
   if tmp then return tmp, nil, true end
+  local backup = read(path .. ".bak")
+  if backup then return backup, nil, true end
   if fs.exists(path) or fs.exists(path .. ".bak") then return nil, "corrupt" end
   return nil, "missing"
 end
