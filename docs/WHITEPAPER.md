@@ -175,7 +175,7 @@ Jeder Worker hat dieselbe Basis:
 
 | Rolle | Aufgaben | Hardware (fest + Wechsel) |
 |---|---|---|
-| Miner | Abbau, Ore Hunt, Tunnel, Strip Mine | Spitzhacke + Modem; Geo Scanner optional im Wechsel mit dem Modem |
+| Miner | Abbau, Ore Hunt, Tunnel, Strip Mine | Spitzhacke + Modem; Geo Scanner optional im Wechsel mit dem Modem. Geplant: Chunky fest, Spitzhacke im Wechsel mit Modem und Geo Scanner, Barrel als Zwischenlager (`docs/PLAN-AUSRUESTUNG.md`) |
 | Scout | Kartierung, Erkundung, POIs | Chunky fest; Geo Scanner und Modem im Wechsel, Store-and-Forward |
 | Builder | Bauprojekte, Wartung, Infrastruktur, z.B. Schacht mit Leiter ausbauen | offen |
 | Courier | Transport, z.B. Kohle vom Lager zu einem Worker unter Tage bringen | offen |
@@ -547,6 +547,8 @@ Hinweis: In v2 wandert die Chat Box an den Command Node, und Claude läuft nicht
 nur, in der Console nachzusehen, ob der Cache greift.
 
 **Idee:** Zwischenstand und echte Zähler für Aufträge (Abschnitt 6.3, Review R19), Pakete 1–3 zuerst.
+
+**Plan:** Miner mit festem Chunky und Barrel als Zwischenlager (`docs/PLAN-AUSRUESTUNG.md`), nach dem Spieltest von `test-wegkosten`.
 
 ---
 
