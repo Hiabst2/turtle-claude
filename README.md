@@ -130,6 +130,7 @@ Auftrag anlegen in der Eingabezeile der Zentrale, z.B.:
 ```
 add orehunt x=725 y=40 z=630 f=nord rounds=2 area=700,0,600,750,60,650
 add tunnel x=710 y=40 z=610 f=sued length=20 width=3 height=3 prio=8
+add stonehunt x=725 y=70 z=630 f=nord amount=640 keep=minecraft:cobblestone only=true
 list
 cancel J3
 ```
@@ -140,6 +141,11 @@ cancel J3
 - Aufträge mit überlappendem Bereich (`area`) laufen nie gleichzeitig
 - nach 3 Fehlschlägen ist ein Auftrag endgültig gescheitert
 - Worker: `P` pausiert (keine neuen Aufträge), `Q` zurück zur Shell
+- Behalten wird Beute (Erze, Rohstoffe, Edelsteine, Staub, Kohle; erkannt am Namen oder an den Item-Tags), dazu
+  Ausrüstung und Brennstoff. Alles andere wirft die Turtle ab, wenn der Platz knapp wird. Je Auftrag:
+  `keep=amethyst,minecraft:dirt` behält zusätzlich, `only=true` behält **nur** `keep`
+- `stonehunt`: Stein sammeln. Gang mit Block darüber und darunter, Bahnen hin und her, bis `amount` Items beisammen
+  sind (Standard 640 Bruchstein/Bruch-Deepslate, 6 Blöcke unter der Oberfläche oder auf `level`), dann ins Lager
 - Aufträge bekommt nur, wer genug Fuel für Anfahrt, Arbeit und den Weg zum Lager hat (`cost.lua`);
   ein Worker unter `worker.min_fuel` (Standard 1000) fährt im Leerlauf selbst zum Lager tanken
 

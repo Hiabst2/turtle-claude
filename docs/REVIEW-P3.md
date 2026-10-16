@@ -22,7 +22,10 @@
 | R11 | teilweise | Leitstelle liest das Modell nur noch aus `claude.model` (Standard `claude-opus-5-5`); die alte Claude-Turtle (`apps/claude.lua`) hat weiter `claude-opus-5` fest |
 | R12 | **erledigt** | Whitepaper liegt in `docs/WHITEPAPER.md`, `docs/PROGRESS.md` verweist darauf |
 | R13 | **erledigt** | bestätigt per Test. Weitere Cancel/Revoke nach `job.stop` ignoriert; Heimweg in `tidyUp` in `pcall`; `worker` ruft `safeStep` (Fehler angezeigt, nur Strg+T beendet). Zusätzlich gefunden: war `job.stop` schon vor dem Schritt gesetzt, wurde gar nicht aufgeräumt – behoben, mit Test |
-| R14–R19 | offen | neu aus dem Spieltest Erzjagd, siehe unten |
+| R14, R15 | umgesetzt, Spieltest offen | Branch `test-wegkosten`: Stein kostet 2 statt 9, Fuel-Prüfung mit dem echten Rückweg, Reserve 200, Strecke vorab eingerechnet; mit Tests |
+| R16 | offen | im Spiel per `set claude.fuel_target 19000` lösbar |
+| R17 | teilweise, Spieltest offen | Branch `test-wegkosten`: Beute statt Junk-Liste (Name oder Item-Tags), Ausnahmen je Auftrag (`keep`, `only`), dazu neuer Auftrag `stonehunt`. Kürzere Lagerfahrten noch offen |
+| R18, R19 | offen | |
 
 ---
 
