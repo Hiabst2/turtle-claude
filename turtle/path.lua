@@ -1,14 +1,17 @@
--- path.lua - Wegsuche, die moeglichst wenig Stein abbaut
+-- path.lua - Wegsuche, die moeglichst wenig Zeit kostet
 -- Eine Karte merkt sich, was die Turtle weiss: Luft (Hoehlen, eigene Gaenge), Erz, Stein, Verbotenes.
 -- Gefuellt wird sie vom Geo Scanner und von jedem Schritt der Turtle. Der Weg wird mit A* gesucht:
--- Luft und Erz kosten 1, Stein (und alles Unbekannte) 1 + STONE, Verbotenes ist unpassierbar.
+-- Luft und Erz kosten 1, Stein 1 + STONE, Unbekanntes 1 + UNKNOWN, Verbotenes ist unpassierbar.
+-- Die Kosten bilden die Zeit ab (Whitepaper 8.2): eine Bewegung dauert 0,4 s, Graben plus Bewegen 0,8 s.
+-- Graben kostet kein Fuel, nur die Bewegung; ein Umweg, um Stein zu sparen, kostet also immer Fuel.
 
 local nav = require("nav")
 local zones = require("zones")
 
 local M = {}
 
-M.STONE = 8 -- Zusatzkosten pro Steinblock: lieber 8 Bloecke Umweg durch Luft als 1 Stein graben
+M.STONE = 1 -- Zusatzkosten pro Steinblock: Graben dauert so lange wie eine Bewegung (Review R14, frueher 8)
+M.UNKNOWN = 2 -- Zusatzkosten pro unbekannter Zelle: meist Stein, dazu ein Aufschlag fuer Lava und Verbotenes
 
 local function key(x, y, z) return x .. "," .. y .. "," .. z end
 M.key = key
@@ -85,7 +88,8 @@ local function cost(map, x, y, z)
     ok = zones.check({ x = x, y = y, z = z }, nil, nav.hasGps()) and true or false
     map.zone[k] = ok
   end
-  return ok and (1 + M.STONE) or nil
+  if not ok then return nil end
+  return c == "solid" and (1 + M.STONE) or (1 + M.UNKNOWN)
 end
 
 -- kleiner Binaer-Heap nach f
@@ -219,7 +223,18 @@ function M.go(map, target, onOre)
   return false, "Darf hier nicht graben: Weg immer wieder blockiert"
 end
 
--- Zum Erz, das am wenigsten Stein kostet. Gibt false zurueck, wenn keins mehr erreichbar ist.
+-- Schritte (= Fuel) des billigsten erlaubten Wegs von der Position zum Ziel, nil wenn es keinen gibt.
+-- Fuer die Fuel-Pruefung: der echte Rueckweg kann laenger sein als die Luftlinie (Review R15).
+function M.stepsTo(map, target)
+  local p = nav.pos()
+  if p.x == target.x and p.y == target.y and p.z == target.z then return 0 end
+  local steps = search(map, p, function(x, y, z) return x == target.x and y == target.y and z == target.z end,
+    function(x, y, z) return math.abs(x - target.x) + math.abs(y - target.y) + math.abs(z - target.z) end,
+    3, target)
+  return steps and #steps or nil
+end
+
+-- Zum Erz, das am wenigsten Zeit kostet. Gibt false zurueck, wenn keins mehr erreichbar ist.
 -- Mit center/radius wird nur rund um den aktuellen Scan gesucht, sonst wird es nach vielen
 -- Bereichen auf CC langsam.
 function M.nextOre(map, onOre, center, radius)

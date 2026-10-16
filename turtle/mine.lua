@@ -135,12 +135,28 @@ local function unloadAndReturn(ctx)
   nav.face(back.f)
 end
 
+M.RESERVE = 200 -- Fuel, das nach Rueckweg und Fahrt zum Lager noch uebrig sein soll (frueher 64)
+
+-- Fuel fuer den Rueckweg zum Startpunkt. Ohne Karte (Stripmine, Tunnel) faehrt die Turtle durch die eigenen
+-- Gaenge, das ist die Luftlinie. Mit Karte (Erzjagd) faehrt sie ueber die Wegsuche, das kann laenger sein
+-- (Review R15). Die Wegsuche kostet Rechenzeit, darum nur, wenn es knapp werden koennte: liegt der direkte Weg
+-- in der Zone, kostet ein Weg hoechstens (1 + UNKNOWN) x Luftlinie, und jeder Schritt kostet mindestens 1.
+local function homeSteps(ctx, rest)
+  local direct = nav.dist(nav.pos(), ctx.start)
+  if not ctx.map then return direct end
+  local worst = (1 + path.UNKNOWN) * direct
+  if nav.fuel() >= worst + rest then return direct end
+  return path.stepsTo(ctx.map, ctx.start) or worst
+end
+
 -- Vor jedem Schritt: genug Fuel fuer den Heimweg? Platz im Inventar? Und ggf. TurtleMQ-Sync.
-local function maintain(ctx)
+-- ahead: Fuel fuer die Strecke, die gleich ohne weitere Pruefung gefahren wird (z.B. zum naechsten Scan-Punkt)
+local function maintain(ctx, ahead)
   -- sicherer Punkt zwischen zwei Schritten; ein Fehler beim Funken darf das Minen nie stoppen
   pcall(sync.maybe)
   -- zurueck zum Startpunkt durch die Gaenge, dann so, wie travel() fliegt (hoch auf Reisehoehe und runter)
-  local need = nav.dist(nav.pos(), ctx.start) + nav.tripCost(ctx.start, nav.depot()) + 64
+  local rest = nav.tripCost(ctx.start, nav.depot()) + M.RESERVE + (ahead or 0)
+  local need = homeSteps(ctx, rest) + rest
   if nav.fuel() < need then nav.refuel(need + 800) end
   if nav.fuel() < need then
     -- daheim wird ausgeladen und Kohle aus dem Lager nachgetankt, dann geht es weiter
@@ -154,6 +170,7 @@ local function maintain(ctx)
     unloadAndReturn(ctx)
   end
 end
+M.maintain = maintain -- fuer Tests
 
 -- Laufender Auftrag wird in /.job gespeichert. Startet die Turtle neu (z.B. Chunk entladen),
 -- kann claude.lua ihn mit M.resume() an der gleichen Stelle fortsetzen.
@@ -540,13 +557,13 @@ function M.orehunt(opts, say)
     end
     local k = path.key(center.x, center.y, center.z)
     sync.setJob(("orehunt %d/%d"):format(done + 1, rounds))
-    maintain(ctx)
+    maintain(ctx, 2 * nav.dist(nav.pos(), center)) -- hin und vom Ziel aus wieder zurueck
     if step(path.go(map, center, onOre)) then
       local n = scanArea(map, radius)
       ctx.say(("Scan %d/%d: %d neue Erzbloecke."):format(done + 1, rounds, n))
       mined = {}
       repeat
-        maintain(ctx)
+        maintain(ctx, 2 * (radius + 4)) -- das naechste Erz liegt im Suchbereich rund um den Scan
       until not path.nextOre(map, onOre, center, radius)
       -- Nachscans: Adern gehen oft ueber den Scanrand hinaus. Wurde Erz gefunden, dort noch einmal scannen,
       -- wo das aeusserste Erz lag, hoechstens M.FOLLOWUPS-mal hintereinander und nur solange Neues kommt.
@@ -559,14 +576,14 @@ function M.orehunt(opts, say)
           if dist > farD then far, farD = p, dist end
         end
         sync.setJob(("orehunt %d/%d Nachscan %d"):format(done + 1, rounds, extra))
-        maintain(ctx)
+        maintain(ctx, 2 * nav.dist(nav.pos(), far))
         if not step(path.go(map, far, onOre)) then break end
         local m = scanArea(map, radius)
         ctx.say(("Nachscan %d: %d neue Erzbloecke."):format(extra, m))
         if m == 0 then break end
         mined = {}
         repeat
-          maintain(ctx)
+          maintain(ctx, 2 * (radius + 4))
         until not path.nextOre(map, onOre, far, radius)
         origin = far
       end

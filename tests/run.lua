@@ -440,6 +440,58 @@ test("B9: nextOre sucht nur rund um den aktuellen Scan", function()
   eq(require("nav").pos().x, 3)
 end)
 
+-- R14: Kosten bilden die Zeit ab, nicht den abgebauten Stein
+test("R14: Wegsuche graebt sich durch 3 Stein statt 10 Bloecke Umweg durch Luft", function()
+  local store = require("store")
+  store.save("/.nav", { pos = { x = 0, y = 0, z = 0, f = 3 }, home = { x = 0, y = 0, z = 0, f = 0 }, gps = true })
+  require("zones").add("test", -100, -100, -100, 100, 100, 100)
+  local path = require("path")
+  local map = path.newMap()
+  path.markAir(map, { x = 0, y = 0, z = 0 })
+  for x = 1, 3 do path.set(map, x, 0, 0, "solid", "minecraft:stone") end
+  path.set(map, 4, 0, 0, "air")
+  -- Umweg durch eine Hoehle: 3 hoch, 4 rueber, 3 runter = 10 Schritte
+  for _, c in ipairs({ { 0, 1 }, { 0, 2 }, { 0, 3 }, { 1, 3 }, { 2, 3 }, { 3, 3 }, { 4, 3 }, { 4, 2 }, { 4, 1 } }) do
+    path.set(map, c[1], c[2], 0, "air")
+  end
+  eq(path.stepsTo(map, { x = 4, y = 0, z = 0 }), 4, "direkt durch den Stein (Kosten 7 statt 10)")
+end)
+
+-- R15: der echte Rueckweg zaehlt, nicht die Luftlinie
+test("R15: Fuel-Pruefung erkennt einen Rueckweg, der dreimal so lang ist wie die Luftlinie", function()
+  local store = require("store")
+  store.save("/.nav", { pos = { x = 10, y = 0, z = 0, f = 3 }, home = { x = 0, y = 0, z = 0, f = 0 }, gps = true })
+  -- erlaubt ist nur ein U: von 10,0,0 nach 10,0,10, rueber nach 0,0,10, zurueck nach 0,0,0 (30 Schritte)
+  local zones = require("zones")
+  zones.add("a", 0, 0, 0, 0, 0, 10)
+  zones.add("b", 0, 0, 10, 10, 0, 10)
+  zones.add("c", 10, 0, 0, 10, 0, 10)
+  local path = require("path")
+  local mine = require("mine")
+  local map = path.newMap()
+  path.markAir(map, { x = 10, y = 0, z = 0 })
+  path.markAir(map, { x = 0, y = 0, z = 10 })
+  path.markAir(map, { x = 10, y = 0, z = 10 })
+  eq(path.stepsTo(map, { x = 0, y = 0, z = 0 }), 30)
+
+  local said = {}
+  local ctx = { start = { x = 0, y = 0, z = 0, f = 0 }, map = map, order = "xzy", junk = true, ores = {},
+    say = function(t) said[#said + 1] = t end }
+  local realFuel = turtle.getFuelLevel
+  local ok = pcall(function()
+    -- reichlich Fuel: keine Lagerfahrt
+    turtle.getFuelLevel = function() return 1000 end
+    mine.maintain(ctx)
+    eq(#said, 0, "bei vollem Tank keine Lagerfahrt")
+    -- Luftlinie (10) + Reserve (200) = 210 wuerde reichen, der echte Weg (30) + 200 = 230 nicht
+    turtle.getFuelLevel = function() return 220 end
+    pcall(mine.maintain, ctx) -- die Lagerfahrt scheitert hier (kein Lager aufgebaut), es zaehlt die Entscheidung
+  end)
+  turtle.getFuelLevel = realFuel
+  assert(ok)
+  assert(said[1] and said[1]:find("Fuel wird knapp"), "Lagerfahrt fehlt: " .. tostring(said[1]))
+end)
+
 local function orehuntSetup(zoneList)
   local store = require("store")
   store.save("/.nav", { pos = { x = 0, y = 0, z = 0, f = 3 }, home = { x = 0, y = 0, z = 0, f = 3 }, gps = true })
