@@ -21,8 +21,8 @@
 | R7–R10 | offen | unverändert |
 | R11 | teilweise | Leitstelle liest das Modell nur noch aus `claude.model` (Standard `claude-opus-5-5`); die alte Claude-Turtle (`apps/claude.lua`) hat weiter `claude-opus-5` fest |
 | R12 | **erledigt** | Whitepaper liegt in `docs/WHITEPAPER.md`, `docs/PROGRESS.md` verweist darauf |
-| R14–R19 | offen | neu aus dem Spieltest Erzjagd, siehe unten |
 | R13 | **erledigt** | bestätigt per Test. Weitere Cancel/Revoke nach `job.stop` ignoriert; Heimweg in `tidyUp` in `pcall`; `worker` ruft `safeStep` (Fehler angezeigt, nur Strg+T beendet). Zusätzlich gefunden: war `job.stop` schon vor dem Schritt gesetzt, wurde gar nicht aufgeräumt – behoben, mit Test |
+| R14–R19 | offen | neu aus dem Spieltest Erzjagd, siehe unten |
 
 ---
 
