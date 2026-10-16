@@ -251,6 +251,27 @@ Claude Haiku 5.5 (`claude-haiku-5-5`, $0.10 / $0.50) für die Leitstelle; ob die
 reicht, müsste ein Test zeigen. Außerdem einen eigenen Workspace mit Ausgabenlimit und einen eigenen API-Key pro
 Gerät in der Console anlegen.
 
+### 6.3 Zwischenstand und Zähler (Idee)
+
+**Ausgangslage:** Ein Auftrag meldet heute nur am Ende eine Zusammenfassung, unterwegs mit `job.progress` nur einen
+Text wie „orehunt 2/4“. Die gemeldeten Erz-Zahlen passen nicht zum Lager (Review R19): Gezählt werden Blöcke, die
+laut Scan Erz waren, nicht Items. Abgebaute Kohle wird zuerst verbrannt, Erz außerhalb der Scan-Kugel wird nicht
+mitgezählt, und nach einem Neustart fangen die Zähler bei 0 an. Noch nicht umgesetzt.
+
+**Möglichkeiten:**
+
+| # | Idee | Nutzen | Kosten |
+|---|---|---|---|
+| 1 | **Zwischenstand bei jedem Sync:** `job.progress` bekommt statt nur Text eine Tabelle: Items nach Sorte, Stein, Scans, Lagerfahrten, Fuel verbraucht, Laufzeit. Die Zentrale speichert sie, `show J5` zeigt sie, die Leitstelle beantwortet „wie läuft J5?“ damit. | live sichtbar | kein extra Funkspruch, der Sync läuft ohnehin etwa jede Minute |
+| 2 | **Zählen, was wirklich ankommt:** nach jedem Abbau den Zuwachs im Inventar je Itemsorte zählen; beim Ausladen festhalten, was abgeliefert wurde, beim Tanken, was verbrannt wurde. Ergebnis z.B. „abgeliefert: raw_iron 312 … / verbrannt: Kohle 45“. | Zahlen passen zum Lager | etwas mehr Rechenarbeit je Abbau |
+| 3 | **Zähler mitspeichern:** die Zähler in `/.job` ablegen, damit ein Neustart sie nicht auf 0 setzt. | keine Lücken | gering |
+| 4 | **Meilensteine im Chat:** die Leitstelle meldet von selbst, z.B. nach jedem Scan oder alle 100 Erze („J5: 300 Erze, Scan 2/4“). Ohne Claude, also ohne API-Kosten; abschaltbar. | man sieht den Fortschritt, ohne zu fragen | Chat wird voller |
+| 5 | **Monitor** an Gateway oder Zentrale (Abschnitt 9.1): eine Zeile je Worker mit Auftrag und Zählerstand. | Überblick an der Wand | braucht 9.1 |
+| 6 | **Gegenprobe am Lager** (P14 Storage Node): Bestand vor und nach dem Auftrag zählen. | unabhängige Kontrolle | eigener Computer am Lager |
+
+**Empfehlung:** 1 bis 3 als ein Paket bauen. Es ist im Wesentlichen eine Änderung am Worker und am Job-Dienst,
+und 4 und 5 bekommen damit echte Zahlen; sie sind danach nur noch Anzeige.
+
 ---
 
 ## 7. WorldMap
@@ -524,6 +545,8 @@ Hinweis: In v2 wandert die Chat Box an den Command Node, und Claude läuft nicht
 
 **Umgesetzt:** Kosten der Leitstelle (Abschnitt 6.2): Verlauf nur anhängen, Sitzungen, Claude Opus 5.5. Offen ist
 nur, in der Console nachzusehen, ob der Cache greift.
+
+**Idee:** Zwischenstand und echte Zähler für Aufträge (Abschnitt 6.3, Review R19), Pakete 1–3 zuerst.
 
 ---
 
