@@ -492,6 +492,70 @@ test("R15: Fuel-Pruefung erkennt einen Rueckweg, der dreimal so lang ist wie die
   assert(said[1] and said[1]:find("Fuel wird knapp"), "Lagerfahrt fehlt: " .. tostring(said[1]))
 end)
 
+-- R17: Beute behalten statt Junk-Liste; Ausnahmen je Auftrag
+test("R17: nur Beute bleibt im Inventar, Auftraege koennen Ausnahmen machen", function()
+  local nav = require("nav")
+  local inv, sel = {}, 1
+  local function fill()
+    inv = {
+      [1] = { name = "minecraft:cobblestone", count = 64 },
+      [2] = { name = "minecraft:raw_iron", count = 5, tags = { ["c:raw_materials/iron"] = true } },
+      [3] = { name = "create:limestone", count = 12 }, -- Gestein aus einem Mod
+      [4] = { name = "mekanism:fluorite_gem", count = 3, tags = { ["c:gems/fluorite"] = true } },
+      [5] = { name = "minecraft:coal", count = 10 },
+      [6] = { name = "minecraft:diamond_pickaxe", count = 1 },
+      [7] = { name = "minecraft:amethyst_block", count = 2 },
+      [8] = { name = "minecraft:redstone", count = 9, tags = { ["c:dusts/redstone"] = true } },
+    }
+  end
+  local function left()
+    local t = {}
+    for s = 1, 16 do if inv[s] then t[#t + 1] = s end end
+    return table.concat(t, ",")
+  end
+  local real = { turtle.getItemDetail, turtle.select, turtle.dropUp }
+  turtle.getItemDetail = function(s) return inv[s] end
+  turtle.select = function(s) sel = s return true end
+  turtle.dropUp = function() inv[sel] = nil return true end
+  local ok, err = pcall(function()
+    fill() nav.dropJunk()
+    eq(left(), "2,4,5,6,8", "Standard: Beute, Kohle, Ausruestung")
+    fill() nav.dropJunk({ keep = { "amethyst" } })
+    eq(left(), "2,4,5,6,7,8", "keep: Amethyst zusaetzlich")
+    fill() nav.dropJunk({ keep = { "minecraft:cobblestone" }, only = true })
+    eq(left(), "1,5,6", "only: nur Bruchstein (plus Kohle und Ausruestung)")
+  end)
+  turtle.getItemDetail, turtle.select, turtle.dropUp = real[1], real[2], real[3]
+  assert(ok, err)
+end)
+
+test("Steinjagd: sammelt bis zur Menge und meldet, wie viel es war", function()
+  local store = require("store")
+  store.save("/.nav", { pos = { x = 0, y = 0, z = 0, f = 3 }, home = { x = 0, y = 0, z = 0, f = 0 }, gps = true })
+  require("zones").add("test", -100, -100, -100, 100, 100, 100)
+  local inv = {}
+  local real = { turtle.getItemDetail, turtle.getItemCount, turtle.forward }
+  turtle.getItemDetail = function(s) return inv[s] end
+  turtle.getItemCount = function(s) return inv[s] and inv[s].count or 0 end
+  -- jeder Schritt bringt einen Bruchstein ins Inventar
+  turtle.forward = function()
+    for s = 1, 16 do
+      if not inv[s] then inv[s] = { name = "minecraft:cobblestone", count = 1 } return true end
+      if inv[s].count < 64 then inv[s].count = inv[s].count + 1 return true end
+    end
+    return true
+  end
+  local ok, res = pcall(function()
+    local mine = require("mine")
+    return mine.run(mine.stonehunt, { amount = 20, home = false }, function() end)
+  end)
+  turtle.getItemDetail, turtle.getItemCount, turtle.forward = real[1], real[2], real[3]
+  assert(ok, res)
+  assert(res:find("^Fertig") and res:find("Gesammelt: %d+ von 20 %(minecraft:cobblestone"), res)
+  local got = tonumber(res:match("Gesammelt: (%d+)"))
+  assert(got >= 20 and got <= 28, "gesammelt " .. got)
+end)
+
 local function orehuntSetup(zoneList)
   local store = require("store")
   store.save("/.nav", { pos = { x = 0, y = 0, z = 0, f = 3 }, home = { x = 0, y = 0, z = 0, f = 3 }, gps = true })
