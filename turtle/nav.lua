@@ -396,10 +396,43 @@ local function keep(name)
   return name:find("chat_box", 1, true) or gear.isGear(name)
 end
 
-local JUNK = {}
-for _, n in ipairs({ "cobblestone", "cobbled_deepslate", "dirt", "gravel", "stone", "deepslate", "tuff",
-  "granite", "diorite", "andesite", "netherrack", "calcite", "flint", "sand", "sandstone" }) do
-  JUNK["minecraft:" .. n] = true
+-- Was beim Minen behalten wird (Review R17). Statt einer Junk-Liste, die nie vollstaendig ist, gilt: behalten
+-- wird Beute, abgeworfen wird der Rest. Beute erkennt die Turtle am Namen (Erzbloecke, Rohstoffe) oder an den
+-- Item-Tags (Rohstoffe, Edelsteine, Staub wie Redstone, Erze, Kohle) - so klappt es mit jedem Modpack.
+-- Ausruestung und Brennstoff bleiben immer.
+-- filter je Auftrag: keep = Namensteile, die zusaetzlich behalten werden (z.B. "amethyst");
+-- only = true: NUR keep behalten (z.B. Steinjagd: nur Bruchstein), keine Beute.
+local LOOT_NAMES = { "_ore", "raw_", "ancient_debris" }
+local LOOT_TAGS = { "raw_materials", "gems", "dusts", "ores", "coals" }
+
+function M.isLoot(item)
+  local name = item.name or ""
+  for _, p in ipairs(LOOT_NAMES) do
+    if name:find(p, 1, true) then return true end
+  end
+  for k, v in pairs(item.tags or {}) do
+    local tag = type(k) == "string" and k or tostring(v) -- Tags kommen als { tag = true } oder als Liste
+    for _, p in ipairs(LOOT_TAGS) do
+      if tag:find(p, 1, true) then return true end
+    end
+  end
+  return false
+end
+
+function M.matches(name, list)
+  for _, p in ipairs(list or {}) do
+    if name:find(p, 1, true) then return true end
+  end
+  return false
+end
+
+-- Soll das Item beim Minen behalten werden?
+function M.wanted(item, filter)
+  filter = filter or {}
+  if keep(item.name) or FUEL[item.name] then return true end
+  if M.matches(item.name, filter.keep) then return true end
+  if filter.only then return false end
+  return M.isLoot(item)
 end
 
 function M.freeSlots()
@@ -408,11 +441,12 @@ function M.freeSlots()
   return n
 end
 
-function M.dropJunk()
+-- Wirft alles ab, was nicht behalten werden soll (siehe wanted). Mit Details, damit die Tags dabei sind.
+function M.dropJunk(filter)
   local sel = turtle.getSelectedSlot()
   for slot = 1, 16 do
-    local item = turtle.getItemDetail(slot)
-    if item and JUNK[item.name] then
+    local item = turtle.getItemDetail(slot, true)
+    if item and not M.wanted(item, filter) then
       turtle.select(slot)
       turtle.dropUp()
     end
@@ -437,6 +471,7 @@ function M.unload()
   -- So wandert keine Kohle sinnlos ins Lager und gleich wieder zurueck.
   M.refuel(M.FUEL_TARGET)
   local sel, dropped, full, reserve = turtle.getSelectedSlot(), 0, false, 0
+  M.lastUnload = {} -- was beim letzten Ausladen je Sorte abgeliefert wurde
   for slot = 1, 16 do
     local item = turtle.getItemDetail(slot)
     if item and not keep(item.name) then
@@ -447,7 +482,12 @@ function M.unload()
       end
       if count > 0 then
         turtle.select(slot)
-        if turtle.drop(count) then dropped = dropped + count else full = true end
+        if turtle.drop(count) then
+          dropped = dropped + count
+          M.lastUnload[item.name] = (M.lastUnload[item.name] or 0) + count
+        else
+          full = true
+        end
       end
     end
   end

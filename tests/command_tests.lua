@@ -286,3 +286,14 @@ test("Leitstelle: lange Tool-Ergebnisse werden gekuerzt", function()
   local res = lastMsg(cc.sent[2]).content[1].content
   assert(#res < 2100 and res:find("gekuerzt, 5000 Zeichen", 1, true), "Laenge " .. #res)
 end)
+
+test("Leitstelle: Steinjagd mit Ausnahmen anlegen", function()
+  local w = setup()
+  local res = w.c.tools.job_create({ type = "stonehunt", x = 5, y = 60, z = 5, amount = 320,
+    keep = { "minecraft:cobblestone", "minecraft:dirt" }, only = true })
+  assert(res:find("J1 angelegt"), res)
+  local j = w.jobs.state.jobs.J1
+  eq(j.type, "stonehunt") eq(j.params.amount, 320) eq(j.params.keep[2], "minecraft:dirt") eq(j.params.only, true)
+  local needs = table.concat(j.requires, ",")
+  assert(needs:find("pickaxe") and needs:find("chest"), needs)
+end)

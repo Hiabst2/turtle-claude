@@ -29,6 +29,7 @@ local PATTERN = { modem = "modem", pickaxe = "pickaxe", geo_scanner = "geo_scann
 M.GEAR_RETRY = 600 -- Sekunden bis zum naechsten Versuch, fehlende Ausruestung zu holen
 M.TOOLBOX_STALE = 600 -- Sekunden: so alt darf das Wissen ueber die Toolbox sein, bevor nachgeschaut wird
 M.ORE_LEVEL = settings.get("worker.ore_level", 16) -- Standard-Abbauhoehe der Erzjagd (Eisen, Gold, Redstone ...)
+M.STONE_DEPTH = 6 -- Steinjagd: so viele Bloecke unter der Oberflaeche am Einstieg, wenn level fehlt
 M.GPS_CHECK = 600 -- Sekunden zwischen zwei Positionskontrollen per GPS im Leerlauf
 M.now = function() return sync.now() end
 local lastSay -- letzte Meldung, bleibt auf dem Bildschirm stehen
@@ -358,7 +359,7 @@ local function runJob(job)
     sync.setJob(job.id .. " " .. job.type)
   end
   local p = job.params or {}
-  local mining = job.type == "orehunt" or job.type == "stripmine" or job.type == "tunnel"
+  local mining = job.type == "orehunt" or job.type == "stripmine" or job.type == "tunnel" or job.type == "stonehunt"
   if mining then
     local ok, err = gear.equipPickaxe()
     if not ok then return "Gestoppt: " .. tostring(err) end
@@ -392,6 +393,13 @@ local function runJob(job)
         M.say("Zwischenkiste nicht an der Oberflaeche: " .. tostring(why) .. " - kommt an den Einstieg")
       end
     end
+    -- Steinjagd: unter der Oberflaeche am Einstieg (dort steht die Turtle nach dem Absinken), in der Zone
+    if job.type == "stonehunt" then
+      local lo, hi = zones.columnRange(s.x, s.z)
+      if not lo then return ("Gestoppt: Einstieg %d %d liegt in keiner Mining-Zone"):format(s.x, s.z) end
+      local want = math.floor(tonumber(p.level) or (nav.pos().y - M.STONE_DEPTH))
+      target = { x = s.x, y = math.max(lo, math.min(hi, want)), z = s.z, f = s.f }
+    end
     local ok, err = nav.travel(target.x, target.y, target.z)
     if not ok then return "Gestoppt: Anfahrt gescheitert: " .. tostring(err) end
     nav.face(s.f or 0)
@@ -399,7 +407,7 @@ local function runJob(job)
     state.lastStart = { x = target.x, y = target.y, z = target.z }
     save()
   end
-  if job.type == "orehunt" or job.type == "stripmine" or job.type == "tunnel" then
+  if mining then
     local opts = copyParams(p)
     opts.chest, opts.stashed = job.chest, job.stashed -- Zwischenkiste steht schon an der Oberflaeche
     local res = mine.run(mine[job.type], opts, M.say)

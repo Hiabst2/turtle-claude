@@ -125,10 +125,20 @@ local function tripDepot(ctx)
   must(nav.goDepot())
 end
 
+-- Steinjagd: was beim Ausladen von den gesammelten Sorten abgeliefert wurde, zaehlt zur Menge (in opts, damit
+-- es mit dem Auftrag gespeichert wird und einen Neustart uebersteht)
+local function noteDelivered(ctx)
+  if not (ctx.opts and ctx.opts.amount) then return end
+  for name, n in pairs(nav.lastUnload or {}) do
+    if nav.matches(name, ctx.filter.keep) then ctx.opts.delivered = (ctx.opts.delivered or 0) + n end
+  end
+end
+
 local function unloadAndReturn(ctx)
   local back = copy(nav.pos())
   tripDepot(ctx)
   must(nav.unload())
+  noteDelivered(ctx)
   local s = ctx.start
   must(nav.travel(s.x, s.y, s.z, nav.HOME_ORDER:reverse()))
   must(toPoint(ctx, back, ctx.order:reverse()))
@@ -164,7 +174,7 @@ local function maintain(ctx, ahead)
     unloadAndReturn(ctx)
     if nav.fuel() < need then error("Fuel knapp und daheim keine Kohle gefunden", 0) end
   end
-  if nav.freeSlots() < 3 and ctx.junk then nav.dropJunk() end
+  if nav.freeSlots() < 3 and ctx.junk then nav.dropJunk(ctx.filter) end
   if nav.freeSlots() < 3 then
     ctx.say("Inventar voll, bringe alles ins Lager.")
     unloadAndReturn(ctx)
@@ -190,12 +200,26 @@ function M.clearJob()
   end
 end
 
-local function newCtx(say, junk, savedStart)
+-- Auftrags-Einstellungen keep/only -> Filter fuer nav.wanted. keep kommt als Liste (Leitstelle) oder als Text
+-- "a,b" (Konsole der Zentrale), only als true oder "true".
+function M.filterFrom(opts)
+  opts = opts or {}
+  local keepList = {}
+  if type(opts.keep) == "string" then
+    for part in opts.keep:gmatch("[^,%s]+") do keepList[#keepList + 1] = part:lower() end
+  elseif type(opts.keep) == "table" then
+    for _, v in ipairs(opts.keep) do keepList[#keepList + 1] = tostring(v):lower() end
+  end
+  return { keep = keepList, only = opts.only == true or opts.only == "true" }
+end
+
+local function newCtx(say, junk, savedStart, opts)
   local start = savedStart and copy(savedStart) or copy(nav.pos())
   -- Hauptachse = Blickrichtung beim Start; zurueck geht es erst quer, dann laengs
   local main = start.f % 2 == 0 and "z" or "x"
   local perp = main == "z" and "x" or "z"
-  local ctx = { start = start, order = perp .. main .. "y", ores = {}, say = say or function() end, junk = junk ~= false }
+  local ctx = { start = start, order = perp .. main .. "y", ores = {}, say = say or function() end, junk = junk ~= false,
+    filter = M.filterFrom(opts), opts = opts }
   M.current = M.current or ctx -- der Auftrag, der gerade laeuft (fuer das Zwischenergebnis bei Abbruch)
   return ctx
 end
@@ -285,7 +309,7 @@ local function retrieveChest(ctx, opts)
   local c = opts.chest
   if not c then return end
   local need = (opts.stashed or 0) + 2
-  if nav.freeSlots() < need and ctx.junk then nav.dropJunk() end
+  if nav.freeSlots() < need and ctx.junk then nav.dropJunk(ctx.filter) end
   if nav.freeSlots() < need then unloadAndReturn(ctx) end
   local suck, dig, inspect = turtle.suckDown, turtle.digDown, turtle.inspectDown
   if c.stand then
@@ -313,6 +337,7 @@ local function finish(ctx, opts, goHome)
   if goHome then
     tripDepot(ctx)
     local ok, info = nav.unload()
+    if ok then noteDelivered(ctx) end
     must(nav.goHome())
     lines[#lines + 1] = ok and ("Ausgeladen: " .. info .. " Items") or ("Nicht ausgeladen: " .. info)
     -- Kiste und Ausruestung zurueck in die Toolbox unter dem Heimplatz - nicht bei Workern (keep_gear):
@@ -371,7 +396,7 @@ function M.stripmine(opts, say)
   local length = clamp(opts.length, 1, 256, 32)
   local branch = clamp(opts.branch, 0, 64, 8)
   local spacing = clamp(opts.spacing, 2, 16, 3)
-  local ctx = newCtx(say, opts.drop_junk, opts.start)
+  local ctx = newCtx(say, opts.drop_junk, opts.start, opts)
   local fwd = ctx.start.f
   opts.start = ctx.start
   resumeAt(ctx)
@@ -423,7 +448,7 @@ function M.tunnel(opts, say)
   local length = clamp(opts.length, 1, 256, 16)
   local width = clamp(opts.width, 1, 16, 3)
   local height = clamp(opts.height, 1, 16, 3)
-  local ctx = newCtx(say, opts.drop_junk, opts.start)
+  local ctx = newCtx(say, opts.drop_junk, opts.start, opts)
   local fwd = ctx.start.f
   local right, left = (fwd + 1) % 4, (fwd + 3) % 4
   opts.start = ctx.start
@@ -505,7 +530,7 @@ function M.orehunt(opts, say)
   local rounds = clamp(opts.rounds, 1, 16, 4)
   local radius = clamp(opts.radius, 2, 16, 8)
   local layers = clamp(opts.layers, 1, 8, 1) -- Schichten untereinander, je 2 x radius tiefer
-  local ctx = newCtx(say, opts.drop_junk, opts.start)
+  local ctx = newCtx(say, opts.drop_junk, opts.start, opts)
   local fwd = ctx.start.f
   opts.start = ctx.start
   if not gear.has("geo_scanner") then error("kein Geo Scanner dabei, erst Ausruestung holen", 0) end
@@ -598,6 +623,73 @@ function M.orehunt(opts, say)
   return summary(ctx, finish(ctx, opts, opts.home ~= false))
 end
 
+-- Steinjagd (Auftragstyp stonehunt): geradeaus einen Gang graben und dabei auch den Block darueber und darunter
+-- abbauen (3 Bloecke je Bewegung), in Bahnen hin und her, bis amount Items der gesammelten Sorten beisammen sind.
+-- Standard: nur Bruchstein und Bruch-Deepslate behalten (only), alles andere wird abgeworfen. Am Ende ins Lager.
+-- length = Laenge einer Bahn, lanes = hoechstens so viele Bahnen; an der Zonengrenze geht es in die naechste Bahn.
+M.STONE_KEEP = { "minecraft:cobblestone", "minecraft:cobbled_deepslate" }
+
+-- Gesammelt = abgeliefert + was gerade im Inventar liegt
+local function collected(ctx)
+  local n = ctx.opts.delivered or 0
+  for slot = 1, 16 do
+    local item = turtle.getItemDetail(slot)
+    if item and nav.matches(item.name, ctx.filter.keep) then n = n + item.count end
+  end
+  return n
+end
+
+function M.stonehunt(opts, say)
+  if opts.keep == nil then opts.keep = M.STONE_KEEP end
+  if opts.only == nil then opts.only = true end
+  local amount = clamp(opts.amount, 1, 100000, 640)
+  opts.amount = amount
+  local length = clamp(opts.length, 1, 256, 32)
+  local lanes = clamp(opts.lanes, 1, 64, 16)
+  local ctx = newCtx(say, opts.drop_junk, opts.start, opts)
+  local fwd = ctx.start.f
+  opts.start = ctx.start
+  resumeAt(ctx)
+  saveJob("stonehunt", opts)
+  placeChest(ctx, opts, "stonehunt")
+
+  -- ueber und unter sich mitnehmen; Zonen- und Schutzgrenzen dort still uebergehen
+  local function digAround()
+    nav.dig("up")
+    nav.dig("down")
+  end
+
+  local have, reached = collected(ctx), false
+  for lane = 1, lanes do
+    local dir = lane % 2 == 1 and fwd or (fwd + 2) % 4
+    for i = 1, length do
+      if i % 8 == 1 then have = collected(ctx) end -- nicht bei jedem Schritt das ganze Inventar lesen
+      sync.setJob(("stonehunt %d/%d"):format(math.min(have, amount), amount))
+      if have >= amount then reached = true break end
+      maintain(ctx)
+      nav.face(dir)
+      if not step(nav.forward(true)) then break end -- Zonenende: naechste Bahn
+      digAround()
+    end
+    have = collected(ctx)
+    if reached or have >= amount then reached = true break end
+    -- naechste Bahn rechts daneben (bezogen auf die Startrichtung)
+    nav.face((fwd + 1) % 4)
+    if not step(nav.forward(true)) then
+      ctx.say("Ende der Mining-Zone erreicht.")
+      break
+    end
+    digAround()
+    saveJob("stonehunt", opts)
+  end
+  if reached then ctx.say(("Ziel erreicht: %d Items gesammelt."):format(have)) end
+
+  local lines = finish(ctx, opts, opts.home ~= false)
+  table.insert(lines, 1, ("Gesammelt: %d von %d (%s)"):format(collected(ctx), amount,
+    table.concat(ctx.filter.keep, ", ")))
+  return summary(ctx, lines)
+end
+
 -- Fuehrt einen Auftrag aus und liefert immer einen Text zurueck, auch bei Abbruch.
 function M.run(job, opts, say)
   opts = opts or {}
@@ -621,7 +713,7 @@ function M.run(job, opts, say)
   local cancelled = res == "abgebrochen"
   if cancelled and opts.keep_gear then nav.resetAbort() end
   if (not cancelled or opts.keep_gear) and opts.start then
-    local ctx = newCtx(say, true, opts.start)
+    local ctx = newCtx(say, true, opts.start, opts)
     pcall(retrieveChest, ctx, opts)
     local back = pcall(tripHome, ctx)
     msg = msg .. (back and "\nBin heimgefahren." or "\nDer Heimweg hat nicht geklappt.")

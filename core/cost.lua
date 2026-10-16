@@ -24,6 +24,8 @@ function M.jobBudget(jobType, params)
   elseif jobType == "stripmine" then
     local l, b, s = n(params.length, 32), n(params.branch, 8), n(params.spacing, 3)
     return l + math.floor(l / s) * 4 * b + l -- Hauptgang, Seitengaenge hin und zurueck, Rueckweg
+  elseif jobType == "stonehunt" then
+    return math.ceil(n(params.amount, 640) / 3) * 2 -- 3 Bloecke je Schritt, grob hin und zurueck
   elseif jobType == "orehunt" then
     local rounds, radius = n(params.rounds, 4), n(params.radius, 8)
     return rounds * (radius * 2 + radius * radius) -- zwischen Bereichen plus Wege zu den Erzen

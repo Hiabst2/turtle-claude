@@ -30,7 +30,12 @@ function M.system(name)
 - Du steuerst Turtles nie direkt. Du legst Auftraege bei der Zentrale an (job_create); die Zentrale gibt sie einer
   passenden Turtle (Rolle, Ausruestung, genug Fuel). Fertige oder gescheiterte Auftraege meldest du von selbst.
 - Auftragstypen: orehunt (Erzjagd mit Geo Scanner, am besten fuer Erz; rounds, radius, level, layers), stripmine (length, branch,
-  spacing), tunnel (length, width, height), goto (x, y, z), gohome (zum Lager und heim).
+  spacing), tunnel (length, width, height), stonehunt (Stein sammeln: amount Items, Standard 640; gegraben wird
+  6 Bloecke unter der Oberflaeche oder auf level), goto (x, y, z), gohome (zum Lager und heim).
+- Was behalten wird: Standard ist Beute (Erze, Rohstoffe, Edelsteine, Kohle), alles andere wirft die Turtle ab.
+  keep = zusaetzlich behalten (Teile von Itemnamen, z.B. ["amethyst"]); only = true behaelt NUR keep.
+  stonehunt behaelt ohne Angabe nur Bruchstein und Bruch-Deepslate; fuer andere Steine keep angeben
+  (z.B. ["minecraft:cobblestone"] oder ["minecraft:dirt"]).
 - orehunt: x, z ist nur der Einstieg, gescannt wird auf level (Abbauhoehe, Standard 16). Je nach Erz: Kohle 96,
   Kupfer 48, Eisen/Gold/Redstone 16, Lapis 0, Diamant -54, Redstone tief -58. Fragt keiner, nimm 16 oder schlage
   passend zum gewuenschten Erz vor. layers = Schichten untereinander (je 16 tiefer). level wird auf Zone und
@@ -143,7 +148,8 @@ function M.new(opts)
 
   tools.job_create = function(input)
     local p = { type = input.type, priority = input.priority, params = {} }
-    for _, k in ipairs({ "rounds", "radius", "level", "layers", "length", "branch", "spacing", "width", "height" }) do
+    for _, k in ipairs({ "rounds", "radius", "level", "layers", "length", "branch", "spacing", "width", "height",
+      "amount", "lanes", "keep", "only" }) do
       if input[k] ~= nil then p.params[k] = input[k] end
     end
     if input.zone then
@@ -275,13 +281,17 @@ function M.new(opts)
     { name = "job_create", description = "Legt einen Auftrag bei der Zentrale an. Mit zone kommen Bereich und Startpunkt "
       .. "aus der Zone; sonst x, y, z (Startpunkt) und facing (Blickrichtung beim Start).",
       input_schema = obj({
-        type = { type = "string", enum = { "orehunt", "stripmine", "tunnel", "goto", "gohome" } },
+        type = { type = "string", enum = { "orehunt", "stripmine", "tunnel", "stonehunt", "goto", "gohome" } },
         zone = str("Name einer Mining-Zone"), x = int(), y = int(), z = int(),
         facing = { type = "string", enum = { "nord", "ost", "sued", "west" } },
         priority = int("1-10, Standard 5"), rounds = int("orehunt: Bereiche"), radius = int("orehunt: Scanradius"),
         level = int("orehunt: Abbauhoehe Y, Standard 16"), layers = int("orehunt: Schichten untereinander"),
         length = int(), branch = int("stripmine: Seitengang"), spacing = int("stripmine: Abstand"),
         width = int("tunnel"), height = int("tunnel"),
+        amount = int("stonehunt: so viele Items sammeln, Standard 640"), lanes = int("stonehunt: hoechstens Bahnen"),
+        keep = { type = "array", items = { type = "string" },
+          description = "zusaetzlich behalten (Teile von Itemnamen); bei stonehunt: was gesammelt wird" },
+        only = { type = "boolean", description = "nur keep behalten, alles andere abwerfen" },
       }, { "type" }) },
     { name = "job_cancel", description = "Bricht einen Auftrag ab; eine arbeitende Turtle hoert sofort auf.",
       input_schema = obj({ id = str("z.B. J3") }, { "id" }) },
