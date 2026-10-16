@@ -21,6 +21,7 @@
 | R7–R10 | offen | unverändert |
 | R11 | teilweise | Leitstelle liest das Modell nur noch aus `claude.model` (Standard `claude-opus-5-5`); die alte Claude-Turtle (`apps/claude.lua`) hat weiter `claude-opus-5` fest |
 | R12 | **erledigt** | Whitepaper liegt in `docs/WHITEPAPER.md`, `docs/PROGRESS.md` verweist darauf |
+| R14–R19 | offen | neu aus dem Spieltest Erzjagd, siehe unten |
 | R13 | **erledigt** | bestätigt per Test. Weitere Cancel/Revoke nach `job.stop` ignoriert; Heimweg in `tidyUp` in `pcall`; `worker` ruft `safeStep` (Fehler angezeigt, nur Strg+T beendet). Zusätzlich gefunden: war `job.stop` schon vor dem Schritt gesetzt, wurde gar nicht aufgeräumt – behoben, mit Test |
 
 ---
@@ -207,10 +208,131 @@ Eine Turtle fährt etwa 2,5 Blöcke/s (jede Bewegung dauert in CC:Tweaked 8 Tick
 
 ---
 
+## Spieltest Erzjagd (2026-10-15, Befunde ab R14)
+
+**Beobachtung:** Ein Orehunt-Auftrag auf Y 14 lief etwa 3 Stunden für eine Zone und baute rund 800 Erze ab, aber
+nur etwa 110 Blöcke Stein, Erde und Sonstiges. In einem anderen Lauf war der Tank leer, kurz nach einem Scan mit
+zwei Nachscans. Die gemeldeten Erz-Zahlen passten nicht zu dem, was im Lager ankam.
+
+Pfade in diesem Abschnitt: Stand nach der Ordneraufteilung (`turtle/mine.lua` usw.), Commit `96e1f48`.
+
+---
+
+## R14 – Wegsuche meidet Stein viel zu stark (hoch)
+
+**Wo:** `turtle/path.lua:11` (`M.STONE = 8`), Kosten in `cost()` (`path.lua:77-89`)
+
+**Mechanismus:** Luft und Erz kosten 1, Stein und Unbekanntes 1 + 8 = 9. Die Wegsuche nimmt also bis zu 8 Blöcke
+Umweg, um einen Block Stein zu sparen. In Wirklichkeit dauert eine Bewegung 0,4 s und Graben plus Bewegen 0,8 s;
+Graben kostet kein Fuel, nur die Bewegung. Ein Block Stein ist damit zeitlich etwa doppelt so teuer wie ein Block
+Luft und beim Fuel gleich teuer. Die Gewichtung spart nur abgebauten Stein und kostet dafür Zeit und Fuel.
+
+**Beleg aus dem Spieltest:** 800 Erze bei nur etwa 110 Blöcken Stein und Sonstigem: Die Turtle ist fast nur durch
+Höhlen, Wasser und Erzadern gefahren. Achtung, die 110 sind abgeleitet (`Blöcke gesamt − Erze`, siehe R19).
+
+**Fix-Vorschlag:** `STONE` auf 1 senken (Stein kostet 2, entspricht der Zeit). Kosten aus Whitepaper 8.2 (neu
+gewichtet) übernehmen. Test: Ziel 3 Blöcke Stein entfernt, Umweg durch Luft 10 Blöcke → die Wegsuche nimmt den
+direkten Weg.
+
+---
+
+## R15 – Fuel-Prüfung rechnet mit der Luftlinie, gefahren wird der Umweg (hoch)
+
+**Wo:** `turtle/mine.lua:138-150` (`maintain`), Rückweg über `toPoint` → `path.go` (`mine.lua:116`)
+
+**Mechanismus:** `maintain` verlangt `Manhattan(Position, Start) + tripCost(Start, Lager) + 64`. Zum Start zurück
+fährt die Turtle aber über die Wegsuche, mit R14 oft deutlich länger als die Luftlinie. Dazwischen liegen ganze
+Strecken ohne Prüfung: der Weg zum nächsten Rasterpunkt, zum Nachscan-Punkt (bis zu 2 × Radius weiter weg) und zum
+nächsten Erz. Die Reserve von 64 ist schnell verbraucht. Bei 0 Fuel kann die Turtle sich nicht mehr bewegen und
+muss von Hand geholt werden.
+
+**Prüfen:** Test mit einer Karte, deren einziger erlaubter Rückweg doppelt so lang ist wie die Luftlinie, und Fuel
+knapp über dem heutigen `need`. Erwartung heute: Tank leer auf dem Rückweg.
+
+**Fix-Vorschlag:**
+
+- Rückweg-Bedarf aus der Wegsuche nehmen (Schrittzahl des Wegs Position → Start auf der Karte), nicht aus der
+  Luftlinie. Wo das zu teuer ist: Luftlinie × Faktor (z.B. 2) plus Reserve.
+- Vor einer langen Fahrt (`path.go` zu Rasterpunkt oder Nachscan) prüfen, ob es vom **Ziel** aus noch heim reicht.
+- Reserve größer (z.B. 200 oder 10 % des Bedarfs).
+- Läuft der Tank trotzdem leer: den Worker melden lassen, wo er steht (Rescue-Rolle, Whitepaper 5.2).
+
+---
+
+## R16 – Getankt wird nur bis 5.000 (mittel)
+
+**Wo:** `turtle/nav.lua:463` (`FUEL_TARGET`, Einstellung `claude.fuel_target`, Standard 5000)
+
+**Mechanismus:** Eine normale Turtle fasst 20.000, eine Advanced Turtle 100.000 (Standardwerte der CC:Tweaked-Config).
+Getankt wird am Lager nur bis 5.000, dazu ein Stapel Kohle als Reserve. Ein Viertel des Tanks bleibt ungenutzt,
+und es gibt mehr Tankfahrten als nötig.
+
+**Fix-Vorschlag:** Standard auf das Tanklimit (`turtle.getFuelLimit()`) minus etwas Luft, oder `claude.fuel_target`
+für Worker höher vorbelegen. Sofort im Spiel möglich: `set claude.fuel_target 19000`.
+
+---
+
+## R17 – Lagerfahrten über die Reisehöhe kosten viel Zeit (mittel, unbestätigt)
+
+**Wo:** `turtle/mine.lua:128` (`unloadAndReturn`), `nav.travel` mit `TRAVEL_Y` 110
+
+**Mechanismus:** Bei vollem Inventar (weniger als 3 freie Slots) fährt die Turtle zum Start, hoch auf Y 110, zum
+Lager und denselben Weg zurück. Von Y 14 aus sind das gut 300–400 Bewegungen, also 3–5 Minuten pro Fahrt. Kupfer,
+Redstone und Lapis geben mehrere Items pro Block, jede Erzsorte belegt einen Slot, und Gesteine aus Mods, die nicht
+auf der Junk-Liste stehen, belegen ebenfalls Slots.
+
+**Prüfen:** Im Spiel `diag log` nach einem Orehunt: Wie oft steht dort „Inventar voll, bringe alles ins Lager“?
+
+**Fix-Vorschlag (je nach Ergebnis):**
+
+- Junk-Liste umdrehen: alles abwerfen, was nicht Erz, Brennstoff oder Ausrüstung ist.
+- Die Zwischenkiste an der Oberfläche (oder eine zweite Kiste in Arbeitsnähe) als Abladeplatz nutzen und erst am
+  Ende ins Lager bringen.
+- Reisehöhe für Lagerfahrten nicht fest auf 110, sondern knapp über Start und Lager.
+
+---
+
+## R18 – Nachscans überlappen mit dem schon gescannten Bereich (niedrig)
+
+**Wo:** `turtle/mine.lua:550-570` (Nachscans), `nextCenter` (`mine.lua:520`)
+
+**Mechanismus:** Der Nachscan liegt beim äußersten Erz, also höchstens einen Radius vom Mittelpunkt entfernt. Ein
+großer Teil der neuen Kugel ist schon gescannt. Nachscan-Bereiche zählen nicht als gescannt; ein späterer
+Rasterpunkt in der Nähe scannt dieselbe Gegend noch einmal.
+
+**Fix-Vorschlag:** Nachscan nur, wenn der Punkt mindestens einen halben Radius außerhalb des bisher gescannten
+Bereichs liegt; Nachscan-Kugeln in die Karte der gescannten Bereiche aufnehmen.
+
+---
+
+## R19 – Gemeldete Erz-Zahlen passen nicht zum Lager (mittel)
+
+**Wo:** `turtle/mine.lua:56` (`found`), `turtle/path.lua:200` (`onOre` in `follow`), `mine.lua:333` (`summary`)
+
+**Mechanismus:** Gezählt werden **Blöcke**, die laut Scan Erz waren und in die die Turtle hineingefahren ist, nicht
+Items. Das weicht aus mehreren Gründen vom Lager ab:
+
+- Ein Erzblock gibt oft mehrere Items (Kupfer 2–5, Redstone 4–5, Lapis 4–9).
+- Abgebaute Kohle wird zuerst verbrannt (`nav.refuel` in `maintain` und `unload`), ein Stapel bleibt als Reserve. Im
+  Lager kommt also weniger Kohle an, als abgebaut wurde.
+- Erz, das beim Durchgraben außerhalb der Scan-Kugel liegt, wird mit abgebaut, aber nicht gezählt.
+- Die Zähler (`ctx.ores`, `nav.stats.blocks`) liegen nur im Speicher. Nach einem Neustart mitten im Auftrag fängt
+  die Zählung bei 0 an.
+- „Stein/Sonstiges“ ist `Blöcke gesamt − Erze`, also abgeleitet: Stimmt eine Zahl nicht, stimmt die andere auch nicht.
+
+**Fix-Vorschlag:** Zählen, was wirklich im Inventar ankommt (Zuwachs je Itemsorte), getrennt nach „abgeliefert“
+(beim Ausladen) und „verbrannt“ (beim Tanken). Zähler in `/.job` mit speichern. Laufend mit `job.progress` an die
+Zentrale schicken (siehe Ideen im Chat-Verlauf vom 2026-10-16: strukturierter Zwischenstand je Sync).
+
+---
+
 ## Empfohlene Reihenfolge
 
-1. R13 (Absturz des Worker-Dienstes), R3-Rest (Einzeiler in `store.lua`)
-2. R5, R6
-3. R7–R11 (R4 ist erledigt)
+1. R14 und R15 zusammen (Wegkosten und Fuel-Prüfung hängen zusammen), dazu R16 (Einstellung)
+2. R19 (echte Zähler, zugleich Grundlage für den Zwischenstand)
+3. R17 nach Auswertung von `diag log`, R18
+4. R7–R11
+
+R1–R6 und R13 sind erledigt.
 
 R1 und R2 sind erledigt. Im Spiel trotzdem einmal mit einem weit entfernten Lager und einem absichtlich entzogenen Auftrag gegenprüfen (deckt R13 mit ab). Nach jedem Block `tests/test.sh` laufen lassen.

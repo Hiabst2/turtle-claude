@@ -3,7 +3,7 @@
 | | |
 |---|---|
 | Version | 0.2 Draft |
-| Stand | 2026-10-15 |
+| Stand | 2026-10-16 |
 | Basis | Draft 0.1 (Zielvision, Roadmap) + Code-Review von v1 |
 | Subprojekte | TurtleMQ, WorldMap, Worker Framework, JobNode, PathNode, MapNode, GatewayNode |
 
@@ -295,24 +295,31 @@ Zentrale Routenplanung im Path Node. Die Turtle plant bei Hindernissen lokal neu
 
 | Zelle | Kosten |
 |---|---|
-| Tunnel (eigener Gang) | 1 |
-| Bekannte Luft | 1 |
-| Höhle | 2 |
-| Erz | 4 |
-| Stein | 10 |
-| Deepslate | 14 |
-| Unknown | 25 |
-| Wasser | 50 |
+| Tunnel (eigener Gang), bekannte Luft, Höhle | 1 |
+| Erz | 1 |
+| Wasser | 1 |
+| Stein, Deepslate | 2 |
+| Unknown | 3 |
 | Lava | unpassierbar |
 | geschützte Blöcke, außerhalb der Zone, über Höhenlimit | unpassierbar |
 
-Hinweise **(neu)**:
+**Neu gewichtet (2026-10-16, nach dem Spieltest):** Draft 0.1 hatte Stein 10, Deepslate 14, Unknown 25 und Wasser 50
+bei Luft 1. Im Spiel baute ein Orehunt so 800 Erze bei nur etwa 110 Blöcken Stein ab und brauchte etwa 3 Stunden:
+Die Turtle fuhr lange Umwege durch Höhlen, um Stein zu sparen (Review R14). Die Kosten bilden jetzt die Zeit ab:
+
+- Eine Bewegung dauert 0,4 s (8 Ticks). Graben plus Bewegen dauert 0,8 s, egal ob Stein oder Deepslate. Stein kostet
+  also 2, Luft 1.
+- Fuel kostet nur die Bewegung, Graben ist umsonst. Ein Umweg spart nie Fuel.
+- Erz kostet 1, weil es ohnehin abgebaut wird. Wasser kostet 1, Turtles fahren darin normal.
+- Unknown kostet 3: meistens Stein, dazu ein kleiner Aufschlag für das Risiko (Lava, geschützter Block).
+
+Hinweise:
 
 - Die kleinsten Kosten sind 1, daher bleibt die Manhattan-Distanz eine zulässige Heuristik für A*.
-- Unknown (25) ist teurer als Stein (10). Bekannter Stein wird also lieber gegraben als unbekanntes Gelände betreten. Das ist gewollt.
-- Fuel-Kosten einer Route sind die Anzahl Schritte, nicht die Wegkosten. Die Route liefert beides zurück.
-- Beispiel: 10 Blöcke durch eine bekannte Höhle kosten 10, ein direkter Weg von 3 Blöcken Stein kostet 30. Die
-  Turtle nimmt also den Umweg durch die Höhle, verbraucht dafür aber 10 statt 3 Fuel.
+- Fuel-Kosten einer Route sind die Anzahl Schritte, nicht die Wegkosten. Die Route liefert beides zurück; die
+  Fuel-Prüfung rechnet mit den Schritten des echten Wegs, nicht mit der Luftlinie (Review R15).
+- Beispiel: Ein direkter Weg durch 3 Blöcke Stein kostet 6, ein Umweg von 10 Blöcken durch eine Höhle 10. Die
+  Turtle gräbt sich durch und braucht 3 statt 10 Fuel.
 
 ### 8.3 Ablauf
 
@@ -534,6 +541,7 @@ nur, in der Console nachzusehen, ob der Cache greift.
 10. Sicherheitsabschnitt (12).
 11. Bugfix-Liste v1 (14).
 12. Roadmap mit Abhängigkeiten (15).
+13. Wegkosten nach dem Spieltest neu gewichtet: Kosten bilden die Zeit ab, nicht abgebauten Stein (8.2, 2026-10-16).
 
 ---
 
